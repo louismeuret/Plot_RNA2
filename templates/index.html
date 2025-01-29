@@ -71,7 +71,9 @@
         <div id="terminal-container"></div>
         <div class="container mt-5">
             <div class="box">
-                <h1 class="title">Upload Files</h1>
+                <h1 class="title" style="font-size: 2.5em; font-family: 'Arial', sans-serif; color: #333;">RNA MD Simulation Plotter</h1>
+                <p class="subtitle" style="font-size: 1.2em; font-family: 'Georgia', serif; color: #555;">This webserver allows you to create plots of useful metrics from RNA molecular dynamics simulations and view them in real-time alongside the trajectory.</p>
+                <h2 class="title" style="font-size: 2em; font-family: 'Arial', sans-serif; color: #333;">Upload Files</h2>
                 <form
                     action="{{ url_for('upload_files') }}"
                     method="post"
@@ -335,6 +337,7 @@
             />
             <div class="box mt-5">
                 <h2 class="title">Retrieve Previous Results</h2>
+                <p class="subtitle" style="font-size: 1.2em; font-family: 'Georgia', serif; color: #555;">Input in here the session id given at the top of the results page of your previous calculation, it allow you to retrieve this page without the need to recalculate everything</p>
                 <form action="{{ url_for('retrieve_results') }}" method="get">
                     <div class="field">
                         <label class="label" for="oldSessionId"

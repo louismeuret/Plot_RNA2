@@ -102,22 +102,22 @@ def upload_files():
     if native_pdb.filename == "" or traj_xtc.filename == "":
         return redirect(request.url)
 
-    app.logger.info(request.form)  # Log request.form to check for data
+    # Validate file extensions
+    if not (native_pdb.filename.endswith('.pdb') and traj_xtc.filename.endswith('.xtc')):
+        return "Invalid file type. Please upload a PDB and XTC file.", 400
 
     session_id = session.get("session_id")
-
     os.makedirs(os.path.join(app.static_folder, session_id), exist_ok=True)
 
-    native_pdb_path = os.path.join(
-        app.static_folder, session_id, secure_filename(native_pdb.filename)
-    )
-    traj_xtc_path = os.path.join(
-        app.static_folder, session_id, secure_filename(traj_xtc.filename)
-    )
+    native_pdb_path = os.path.join(app.static_folder, session_id, secure_filename(native_pdb.filename))
+    traj_xtc_path = os.path.join(app.static_folder, session_id, secure_filename(traj_xtc.filename))
 
-    native_pdb.save(native_pdb_path)
-    traj_xtc.save(traj_xtc_path)
-    app.logger.info("SAVED TRAJECTORY")
+    try:
+        native_pdb.save(native_pdb_path)
+        traj_xtc.save(traj_xtc_path)
+    except Exception as e:
+        app.logger.error(f"Error saving files: {e}")
+        return "Error saving files.", 500
 
     selected_plots = []
     n_frames = int(request.form.get("n_frames", 1))  # Default to 1 if not specified

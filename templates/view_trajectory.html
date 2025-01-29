@@ -2,8 +2,16 @@
 
 <section class="section" style="padding: 0 20px">
     <div class="content">
-        <h1 class="title">Trajectory Viewer</h1>
-        <h3 class="title">{{session_id}}</h3>
+        <div class="box" style="max-width: 600px; margin: auto; padding: 10px; display: flex; align-items: center;">
+            <div style="flex: 1;">
+                <h1 class="title" style="font-size: 1.5em;">Trajectory Viewer</h1>
+                <div style="display: flex; align-items: center;">
+                    <h3 class="title" style="font-size: 1.2em; " id="session-id">{{session_id}}</h3>
+                    <button class="button is-small ml-2" onclick="copyToClipboard('{{ session_id }}')" onmouseover="document.getElementById('session-id').style.display='block'" onmouseout="document.getElementById('session-id').style.display='none'">Copy Link</button>
+                </div>
+            </div>
+            <a href="{{ url_for('index') }}" class="button is-link" style="flex: 0 0 auto; margin-left: 10px;">Back to Home</a>
+        </div>
 
         <div class="columns is-fullheight" style="align-items: flex-start">
             <!-- First Column: Viewer and Player Controls Section -->
@@ -77,22 +85,28 @@
                 style="overflow-y: auto; max-height: 90vh"
             >
                 <div id="sortable-container">
-                    {% for plot_info in plot_data %} {% if plot_info[0] ==
-                    "TORSION" %} {% include '_plot_torsion.html' %} {% elif
-                    plot_info[0] == "BASE_PAIRING" %} {% include
-                    '_plot_2Dbasepairing.html' %} {% elif plot_info[0] ==
-                    "LANDSCAPE_PLT" %} {% include '_plot_landscape.html' %} {%
-                    elif plot_info[0] == "RMSD" %} {% include '_plot_rmsd.html'
-                    %} {% elif plot_info[0] == "ERMSD" %} {% include
-                    '_plot_ermsd.html' %} {% elif plot_info[0] ==
-                    "SEC_STRUCTURE" %} {% include
-                    '_plot_secondary_structure.html' %} {% elif plot_info[0] ==
-                    "CONTACT_MAPS" %} {% include '_plot_contacts.html' %}
-                    <script>
-                        console.log("Contact maps plot included");
-                    </script>
-                    {% else %} {% include '_plot_default.html' %} {% endif %} {%
-                    endfor %}
+                    {% for plot_info in plot_data %}
+                        {% if plot_info[0] == "TORSION" %}
+                            {% include '_plot_torsion.html' %}
+                        {% elif plot_info[0] == "BASE_PAIRING" %}
+                            {% include '_plot_2Dbasepairing.html' %}
+                        {% elif plot_info[0] == "LANDSCAPE_PLT" %}
+                            {% include '_plot_landscape.html' %}
+                        {% elif plot_info[0] == "RMSD" %}
+                            {% include '_plot_rmsd.html' %}
+                        {% elif plot_info[0] == "ERMSD" %}
+                            {% include '_plot_ermsd.html' %}
+                        {% elif plot_info[0] == "SEC_STRUCTURE" %}
+                            {% include '_plot_secondary_structure.html' %}
+                        {% elif plot_info[0] == "CONTACT_MAPS" %}
+                            {% include '_plot_contacts.html' %}
+                            <script>
+                                console.log("Contact maps plot included");
+                            </script>
+                        {% else %}
+                            {% include '_plot_default.html' %}
+                        {% endif %}
+                    {% endfor %}
                 </div>
             </div>
         </div>
@@ -100,6 +114,16 @@
 </section>
 
 <script>
+    function shareSession() {
+        const sessionId = "{{ session_id }}";
+        const shareLink = `http://127.0.0.1:6969/retrieve-results?session_id=${sessionId}`;
+        navigator.clipboard.writeText(shareLink).then(() => {
+            alert("Share link copied to clipboard: " + shareLink);
+        }, (err) => {
+            console.error("Could not copy text: ", err);
+        });
+    }
+    
     $(document).ready(function () {
         var sortable = new Sortable(
             document.getElementById("sortable-container"),
