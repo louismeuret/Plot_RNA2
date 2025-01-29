@@ -1,0 +1,531 @@
+<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <title>File Upload</title>
+        <!-- Bulma CSS -->
+        <link
+            href="https://cdn.jsdelivr.net/npm/bulma@0.9.3/css/bulma.min.css"
+            rel="stylesheet"
+        />
+        <link
+            rel="stylesheet"
+            href="https://cdn.jsdelivr.net/npm/xterm/css/xterm.css"
+        />
+        <link
+            rel="shortcut icon"
+            href="{{ url_for('static', filename='favicon.ico') }}"
+        />
+        <style>
+            body,
+            html {
+                margin: 0;
+                padding: 0;
+                height: 100%;
+                background-color: #f0f0f0; /* Ensure background color is set */
+                position: relative; /* Establish stacking context */
+            }
+            .container {
+                position: relative;
+                z-index: 1; /* Ensure container content is above canvas */
+            }
+            canvas {
+                position: absolute;
+                top: 0;
+                left: 0;
+                width: 100%;
+                height: 100%;
+                z-index: 0; /* Place the canvas behind other content */
+            }
+            #terminal-container {
+                width: 50%;
+                height: 300px;
+                margin: auto;
+                display: none;
+            }
+            #overlay {
+                display: none;
+                position: fixed;
+                top: 0;
+                left: 0;
+                width: 100%;
+                height: 100%;
+                background: rgba(0, 0, 0, 0.5);
+                backdrop-filter: blur(5px);
+                z-index: 2;
+                justify-content: center;
+                align-items: center;
+            }
+            #overlay .box {
+                width: 50%;
+                padding: 20px;
+                background: white;
+                box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+                text-align: center;
+            }
+        </style>
+    </head>
+    <body>
+        <div style="height: 20px"></div>
+        <div id="terminal-container"></div>
+        <div class="container mt-5">
+            <div class="box">
+                <h1 class="title">Upload Files</h1>
+                <form
+                    action="{{ url_for('upload_files') }}"
+                    method="post"
+                    enctype="multipart/form-data"
+                >
+                    <div class="field">
+                        <label class="label" for="nativePdb"
+                            >Native PDB File:</label
+                        >
+                        <div class="control">
+                            <input
+                                type="file"
+                                class="input"
+                                id="nativePdb"
+                                name="nativePdb"
+                                accept=".pdb,.gro"
+                            />
+                        </div>
+                    </div>
+                    <div class="field">
+                        <label class="label" for="trajXtc"
+                            >Trajectory XTC File:</label
+                        >
+                        <div class="control">
+                            <input
+                                type="file"
+                                class="input"
+                                id="trajXtc"
+                                name="trajXtc"
+                                accept=".xtc,.trr,.dcd,.binpos,.netcdf,.mdcrd"
+                            />
+                        </div>
+                    </div>
+                    <div class="field">
+                        <label class="label" for="trajPdb"
+                            >Trajectory PDB File:</label
+                        >
+                        <div class="control">
+                            <input
+                                type="file"
+                                class="input"
+                                id="trajPdb"
+                                name="trajPdb"
+                                accept=".pdb,.gro"
+                            />
+                        </div>
+                    </div>
+                    <div class="field">
+                        <label class="label" for="frameSettings"
+                            >Frame Settings:</label
+                        >
+                        <div class="columns">
+                            <div class="column">
+                                <input
+                                    type="number"
+                                    class="input"
+                                    placeholder="First Frame"
+                                    name="firstFrame"
+                                    id="firstFrame"
+                                />
+                            </div>
+                            <div class="column">
+                                <input
+                                    type="number"
+                                    class="input"
+                                    placeholder="Last Frame"
+                                    name="lastFrame"
+                                    id="lastFrame"
+                                />
+                            </div>
+                            <div class="column">
+                                <input
+                                    type="number"
+                                    class="input"
+                                    placeholder="Stride"
+                                    name="stride"
+                                    id="stride"
+                                />
+                            </div>
+                        </div>
+                    </div>
+                    <h2 class="subtitle">Select Plots:</h2>
+                    <div class="field">
+                        <div class="control">
+                            <label class="checkbox">
+                                <input
+                                    type="checkbox"
+                                    id="rmsd"
+                                    name="rmsd"
+                                    value="RMSD"
+                                />
+                                RMSD
+                                <span
+                                    class="icon has-tooltip"
+                                    data-tooltip="Plot a Root mean Square Deviation Scatter plot"
+                                >
+                                    <i class="fas fa-info-circle"></i>
+                                </span> </label
+                            ><br />
+                            <label class="checkbox">
+                                <input
+                                    type="checkbox"
+                                    id="ermsd"
+                                    name="ermsd"
+                                    value="ERMSD"
+                                />
+                                ERMSD
+                                <span
+                                    class="icon has-tooltip"
+                                    data-tooltip="Plot a ERMSD Scatter plot"
+                                >
+                                    <i class="fas fa-info-circle"></i>
+                                </span> </label
+                            ><br />
+                            <label class="checkbox">
+                                <input
+                                    type="checkbox"
+                                    id="base_pairing"
+                                    name="base_pairing"
+                                    value="BASE_PAIRING"
+                                />
+                                Base Pairing 2D Plot
+                                <span
+                                    class="icon has-tooltip"
+                                    data-tooltip="Plot a 2D representation of the base pairing"
+                                >
+                                    <i class="fas fa-info-circle"></i>
+                                </span> </label
+                            ><br />
+                            <label class="checkbox">
+                                <input
+                                    type="checkbox"
+                                    id="torsion"
+                                    name="torsion"
+                                    value="TORSION"
+                                />
+                                TORSION
+                                <span
+                                    class="icon has-tooltip"
+                                    data-tooltip="Plot all angles values for a specific residue"
+                                >
+                                    <i class="fas fa-info-circle"></i>
+                                </span>
+                            </label>
+                            <input
+                                type="text"
+                                class="input mt-2"
+                                id="torsionResidue"
+                                name="torsionResidue"
+                                placeholder="Residue name or index"
+                            /><br />
+                            <label class="checkbox">
+                                <input
+                                    type="checkbox"
+                                    id="sec_structure"
+                                    name="sec_structure"
+                                    value="SEC_STRUCTURE"
+                                />
+                                SEC_STRUCTURE
+                                <span
+                                    class="icon has-tooltip"
+                                    data-tooltip="Secondary Structure"
+                                >
+                                    <i class="fas fa-info-circle"></i>
+                                </span> </label
+                            ><br />
+                            <label class="checkbox">
+                                <input
+                                    type="checkbox"
+                                    id="dotbracket"
+                                    name="dotbracket"
+                                    value="DOTBRACKET"
+                                />
+                                DOTBRACKET
+                                <span
+                                    class="icon has-tooltip"
+                                    data-tooltip="Dot-Bracket Notation"
+                                >
+                                    <i class="fas fa-info-circle"></i>
+                                </span> </label
+                            ><br />
+                            <label class="checkbox">
+                                <input
+                                    type="checkbox"
+                                    id="arc"
+                                    name="arc"
+                                    value="ARC"
+                                />
+                                ARC
+                                <span
+                                    class="icon has-tooltip"
+                                    data-tooltip="Plot a diagram in Arc, showing the frequency of contacts during the MD"
+                                >
+                                    <i class="fas fa-info-circle"></i>
+                                </span> </label
+                            ><br />
+                            <label class="checkbox">
+                                <input
+                                    type="checkbox"
+                                    id="contact_maps"
+                                    name="contact_maps"
+                                    value="CONTACT_MAPS"
+                                />
+                                CONTACT_MAPS
+                                <span
+                                    class="icon has-tooltip"
+                                    data-tooltip="Contact Maps"
+                                >
+                                    <i class="fas fa-info-circle"></i>
+                                </span> </label
+                            ><br />
+                            <label class="checkbox">
+                                <input
+                                    type="checkbox"
+                                    id="landscape"
+                                    name="landscape"
+                                    value="LANDSCAPE"
+                                />
+                                LANDSCAPE
+                                <span
+                                    class="icon has-tooltip"
+                                    data-tooltip="Energy Landscape"
+                                >
+                                    <i class="fas fa-info-circle"></i>
+                                </span>
+                            </label>
+                            <input
+                                type="text"
+                                class="input mt-2"
+                                id="landscape_stride"
+                                name="landscape_stride"
+                                placeholder="Precision of the Energy Landscape, (as a stride, 2 meaning one of two frames considered)"
+                                value="1"
+                            /><br />
+                        </div>
+                    </div>
+                    <div class="control">
+                        <button
+                            type="submit"
+                            class="button is-primary"
+                            id="submit_btn"
+                        >
+                            Upload
+                        </button>
+                    </div>
+                </form>
+            </div>
+            <div id="overlay">
+                <div class="box">
+                    <h2>Processing...</h2>
+                    <div id="progress-bar-container">
+                        <div id="nucleotide-sequence"></div>
+                        <div id="progress-markers"></div>
+                    </div>
+                    <div id="terminal"></div>
+                </div>
+            </div>
+            <link
+                href="{{ url_for('static', filename='css/progress_bar_style.css') }}"
+                rel="stylesheet"
+            />
+            <div class="box mt-5">
+                <h2 class="title">Retrieve Previous Results</h2>
+                <form action="{{ url_for('retrieve_results') }}" method="get">
+                    <div class="field">
+                        <label class="label" for="oldSessionId"
+                            >Old Session ID:</label
+                        >
+                        <div class="control">
+                            <input
+                                type="text"
+                                class="input"
+                                id="oldSessionId"
+                                name="session_id"
+                                placeholder="Enter old session ID"
+                            />
+                        </div>
+                    </div>
+                    <div class="control">
+                        <button type="submit" class="button is-link">
+                            Retrieve Results
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+
+        <!-- Bootstrap JS (Optional) -->
+        <link
+            href=" https://cdn.jsdelivr.net/npm/bulma-tooltip@3.0.2/dist/css/bulma-tooltip.min.css "
+            rel="stylesheet"
+        />
+        <script
+            src="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/js/all.min.js"
+            integrity="sha512-u3fPA7V8qQmhBPNT5quvaXVa1mnnLSXUep5PS1qo5NRzHwG19aHmNJnj1Q8hpA/nBWZtZD4r4AX6YOt5ynLN2g=="
+            crossorigin="anonymous"
+            referrerpolicy="no-referrer"
+        ></script>
+        <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.4.0/p5.js"></script>
+        <script src="https://cdnjs.cloudflare.com/ajax/libs/matter-js/0.17.1/matter.min.js"></script>
+        <script src="{{ url_for('static', filename='js/app.js') }}"></script>
+        <script
+            src="https://code.jquery.com/jquery-3.3.1.slim.min.js"
+            integrity="sha384-q8i/X+965DzO0rT7abK41JStQIAqVgRVzpbzo5smXKp4YfRvH+8abtTE1Pi6jizo"
+            crossorigin="anonymous"
+        ></script>
+        <script
+            src="https://cdn.jsdelivr.net/npm/popper.js@1.14.6/dist/umd/popper.min.js"
+            integrity="sha384-wHAiFfRlMFy6i5SRaxvfOCifBUQy1xHdJ/yoi7FRNXMRBu5WHdZYu1hA6ZOblgut"
+            crossorigin="anonymous"
+        ></script>
+        <script
+            src="https://cdn.jsdelivr.net/npm/bootstrap@4.2.1/dist/js/bootstrap.min.js"
+            integrity="sha384-B0UglyR+jN6CkvvICOB2joaf5I4l3gm9GU6Hc1og6Ls7i6U/mkkaduKaBhlAXv9k"
+            crossorigin="anonymous"
+        ></script>
+        <script src="https://cdn.jsdelivr.net/npm/xterm/lib/xterm.js"></script>
+        <script src="https://cdn.jsdelivr.net/npm/socket.io-client/dist/socket.io.min.js"></script>
+        <script>
+            document.addEventListener("DOMContentLoaded", function () {
+                document.getElementById("overlay").style.display = "none";
+                console.log("Loaded website");
+                const sessionId = "{{ session_id }}";
+                console.log("SESSION ID:");
+                console.log(sessionId);
+                const socket = io.connect(
+                    "http://" + document.domain + ":" + location.port,
+                    {
+                        query: "session_id=" + sessionId,
+                    },
+                );
+
+                /*
+                const socket = io.connect("https://rna_temp.louismeuret.com", {
+                    query: "session_id=" + sessionId,
+                });
+                */
+
+                socket.on("connect", () => {
+                    console.log("Socket connected successfully");
+                });
+
+                socket.on("connect_error", (error) => {
+                    console.error("Socket connection error:", error);
+                });
+
+                document
+                    .getElementById("submit_btn")
+                    .addEventListener("click", (event) => {
+                        console.log("STARTED CALCULATIONS");
+                        startCalculations();
+                    });
+
+                socket.on("close_terminal", () => {
+                    setTimeout(() => {
+                        document.getElementById("overlay").style.display =
+                            "none"; // Hide the overlay
+                    }, 2000); // Hide overlay after 2 seconds
+                });
+
+                function startCalculations() {
+                    // Show the overlay when the button is clicked
+                    document.getElementById("overlay").style.display = "flex";
+                    listenForUpdates();
+                }
+
+                function initializeProgressBar() {
+                    const nucleotides = ["A", "U", "G", "C"];
+                    const progressBar = document.getElementById(
+                        "nucleotide-sequence",
+                    );
+                    const progressMarkers =
+                        document.getElementById("progress-markers");
+
+                    // Initialize the nucleotide sequence with 50 gray nucleotides
+                    for (let i = 0; i < 50; i++) {
+                        const nucleotideElement =
+                            document.createElement("span");
+                        const nucleotide =
+                            nucleotides[
+                                Math.floor(Math.random() * nucleotides.length)
+                            ];
+                        nucleotideElement.className = `nucleotide ${nucleotide}`;
+                        nucleotideElement.dataset.type = nucleotide; // Store the type for later use
+                        nucleotideElement.innerText = nucleotide;
+                        progressBar.appendChild(nucleotideElement);
+                    }
+
+                    // Initialize the progress markers for every 10 units
+                    for (let i = 1; i <= 100; i++) {
+                        const marker = document.createElement("span");
+                        if (i % 10 === 0) {
+                            marker.innerText = i + "%";
+                        } else {
+                            marker.innerText = ""; // Leave empty for spacing
+                        }
+                        progressMarkers.appendChild(marker);
+                    }
+                }
+
+                function listenForUpdates() {
+                    const nucleotideElements =
+                        document.getElementsByClassName("nucleotide");
+                    let currentProgress = 0;
+
+                    socket.on("update_progress", function (data) {
+                        console.log("GOT AN UPDATE");
+                        console.log(data.progress);
+
+                        // Calculate nucleotide progress (out of 50)
+                        const nucleotideIndex = Math.floor(
+                            (data.progress / 100) * nucleotideElements.length,
+                        );
+
+                        // Update nucleotide sequence colors
+                        if (nucleotideIndex > currentProgress) {
+                            for (
+                                let i = currentProgress;
+                                i < nucleotideIndex;
+                                i++
+                            ) {
+                                nucleotideElements[i].classList.remove(
+                                    "ribosome",
+                                );
+                                nucleotideElements[i].classList.add("visited");
+                            }
+                            if (nucleotideIndex < nucleotideElements.length) {
+                                nucleotideElements[
+                                    nucleotideIndex
+                                ].classList.add("ribosome");
+                            }
+                        }
+                        currentProgress = nucleotideIndex;
+
+                        // Update terminal log
+                        const terminal = document.getElementById("terminal");
+                        const message = document.createElement("p");
+                        message.innerText = data.message;
+                        if (
+                            terminal.lastChild &&
+                            terminal.lastChild.innerText === data.message
+                        ) {
+                            return; // Prevent duplicate messages
+                        }
+                        terminal.appendChild(message);
+                        terminal.scrollTop = terminal.scrollHeight;
+                    });
+                }
+
+                // Initialize the progress bar and set up socket updates
+                initializeProgressBar();
+                listenForUpdates();
+            });
+        </script>
+        <div style="height: 20px"></div>
+    </body>
+</html>

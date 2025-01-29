@@ -1,0 +1,91 @@
+<div class="box mt-5">
+    <div class="flex-container">
+        <div id="{{ plot_info[0] }}" class="plot"></div>
+        <i class="drag-handle" data-lucide="grip"></i>
+        <i class="expand-icon" data-lucide="expand"></i>
+    </div>
+    <div id="{{ plot_info[1] }}"></div>
+    <div class="content">
+        <script>
+            console.log("HEY");
+            console.log("{{ explainations }}");
+        </script>
+        <h2>{{ explainations.get(plot_info[0]).title }}</h2>
+        <p>{{ explainations.get(plot_info[0]).content }}</p>
+        {% if explainations.get(plot_info[0]).formula != "" %}
+        <div class="formula">
+            {{ explainations.get(plot_info[0]).formula | safe }}
+        </div>
+        {% endif %}
+    </div>
+    <script>
+        var previousValue2 = 1;
+        var dataLength = {{ trajectory_length }};
+        var plotData_{{ plot_info[1] }} = {{ plot_info[2] | safe }};
+
+        // Initial plot with the main data
+        var config = {responsive: true};
+
+        Plotly.newPlot('{{ plot_info[1] }}', plotData_{{ plot_info[1] }}, {}, config);
+        window.addEventListener('resize', function() {
+            Plotly.Plots.resize(document.getElementById('{{ plot_info[1] }}'));
+        });
+
+        $(document).on("click", ".expand-icon", function () {
+            Plotly.Plots.resize(document.getElementById('{{ plot_info[1] }}'));
+        });
+
+        document.getElementById('frame-slider').addEventListener('input', updateMarkerTrace);
+        document.getElementById('frame-number').addEventListener('input', updateMarkerTrace);
+
+        function updateMarkerTrace(event) {
+            var sliderValue;
+            if (event.target.id === 'frame-slider') {
+                sliderValue = parseInt(document.getElementById('frame-slider').value);
+            } else {
+                sliderValue = parseInt(document.getElementById('frame-number').value);
+            }
+            console.log("Slider Value: ", sliderValue);
+            console.log("Data Length: ", dataLength);
+            console.log("Frame-number: ", parseInt(document.getElementById('frame-number').value));
+            console.log("Plot Data: ", plotData_{{ plot_info[1] }});
+
+            if (!updateMarkerTrace.hasExecuted) {
+                // Code to execute if the function is called for the first time
+                var newMarkerTrace = {
+                    x: [sliderValue],
+                    y: [plotData_{{ plot_info[1] }}.data[0].y[sliderValue]],
+                    legendrank: 2,
+                    type: 'scattergl',
+                    mode: 'markers',
+                    marker: {
+                        color: 'red',
+                        size: 12
+                    },
+                    name: 'Frame Marker'
+                };
+                console.log("Adding new marker trace: ", newMarkerTrace);
+                Plotly.addTraces('{{ plot_info[1] }}', newMarkerTrace);
+                updateMarkerTrace.hasExecuted = true;
+            } else {
+                var update = {
+                    'x': [[sliderValue]],
+                    'y': [[plotData_{{ plot_info[1] }}.data[0].y[sliderValue]]]
+                };
+                console.log("Updating marker trace: ", update);
+                Plotly.restyle('{{ plot_info[1] }}', update, [1]); // Update the second trace (index 1)
+            }
+        }
+    </script>
+
+    <a
+        href="{{ url_for('download_plot_data', plot_id=plot_info[0], session_id=session_id) }}"
+        class="button is-link"
+        >Download {{ plot_info[0] }} Data</a
+    >
+    <a
+        href="{{ url_for('download_plot', plot_id=plot_info[0], session_id=session_id) }}"
+        class="button is-link"
+        >Download Plot</a
+    >
+</div>

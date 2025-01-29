@@ -1,0 +1,334 @@
+{% extends 'layout.html' %} {% block content %}
+
+<section class="section" style="padding: 0 20px">
+    <div class="content">
+        <h1 class="title">Trajectory Viewer</h1>
+        <h3 class="title">{{session_id}}</h3>
+
+        <div class="columns is-fullheight" style="align-items: flex-start">
+            <!-- First Column: Viewer and Player Controls Section -->
+            <div class="column is-half is-fullheight">
+                <div
+                    class="box"
+                    style="
+                        position: sticky;
+                        top: 0;
+                        z-index: 9;
+                        background: white;
+                    "
+                >
+                    <!-- Viewer Section -->
+                    <div id="viewport" style="width: 100%; height: 400px"></div>
+
+                    <!-- Player Controls -->
+                    <div
+                        id="player-controls"
+                        class="field is-grouped is-grouped-centered mt-4"
+                    >
+                        <input
+                            type="range"
+                            id="frame-slider"
+                            min="0"
+                            max="{{ trajectory_length - 1}}"
+                            value="0"
+                            step="1"
+                            class="slider is-fullwidth"
+                            style="width: 70%"
+                        />
+                        <input
+                            type="number"
+                            id="frame-number"
+                            min="0"
+                            max="{{ trajectory_length - 1}}"
+                            value="0"
+                            step="1"
+                            class="input ml-2"
+                            style="width: 10%"
+                        />
+                        <button
+                            id="play-pause-button"
+                            class="button is-primary ml-2"
+                        >
+                            Play
+                        </button>
+                    </div>
+
+                    <!-- Toggle Buttons -->
+                    <div class="buttons is-centered mt-4">
+                        <button id="toggleSpin" class="button">
+                            Spin On/Off
+                        </button>
+                        <button id="toggleTheme" class="button">
+                            Light/Dark Background
+                        </button>
+                        <button id="toggleRunMDs" class="button">
+                            Start/Stop MD
+                        </button>
+                        <button id="toggleSideChains" class="button">
+                            Show/Hide Sidechains
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Second Column: Plots and Images -->
+            <div
+                class="column is-half is-fullheight"
+                style="overflow-y: auto; max-height: 90vh"
+            >
+                <div id="sortable-container">
+                    {% for plot_info in plot_data %} {% if plot_info[0] ==
+                    "TORSION" %} {% include '_plot_torsion.html' %} {% elif
+                    plot_info[0] == "BASE_PAIRING" %} {% include
+                    '_plot_2Dbasepairing.html' %} {% elif plot_info[0] ==
+                    "LANDSCAPE_PLT" %} {% include '_plot_landscape.html' %} {%
+                    elif plot_info[0] == "RMSD" %} {% include '_plot_rmsd.html'
+                    %} {% elif plot_info[0] == "ERMSD" %} {% include
+                    '_plot_ermsd.html' %} {% elif plot_info[0] ==
+                    "SEC_STRUCTURE" %} {% include
+                    '_plot_secondary_structure.html' %} {% elif plot_info[0] ==
+                    "CONTACT_MAPS" %} {% include '_plot_contacts.html' %}
+                    <script>
+                        console.log("Contact maps plot included");
+                    </script>
+                    {% else %} {% include '_plot_default.html' %} {% endif %} {%
+                    endfor %}
+                </div>
+            </div>
+        </div>
+    </div>
+</section>
+
+<script>
+    $(document).ready(function () {
+        var sortable = new Sortable(
+            document.getElementById("sortable-container"),
+            {
+                animation: 150,
+                ghostClass: "sortable-ghost",
+                handle: ".drag-handle",
+                onEnd: function (evt) {
+                    var itemEl = evt.item; // dragged HTMLElement
+                    // You can save the new order here by sending an AJAX request to your server
+                    // with the new order of elements.
+                },
+            },
+        );
+
+        $(document).on("click", ".expand-icon", function () {
+            var $box = $(this).closest(".box");
+            if ($box.hasClass("expanded")) {
+                $box.removeClass("expanded");
+                console.log("BAD");
+            } else {
+                $(".box").removeClass("expanded");
+                $box.addClass("expanded");
+                console.log("GOOD");
+            }
+        });
+    });
+</script>
+
+<script>
+    $(document).ready(function () {
+        var socket = io.connect(
+            "http://" + document.domain + ":" + location.port,
+        );
+
+        $("#slider").on("input", function () {
+            var sliderValue = $(this).val();
+            socket.emit("slider_value", { value: sliderValue });
+        });
+
+        socket.on("image_update", function (data) {
+            $("#dynamic-image").attr(
+                "src",
+                data.image_url + "?" + new Date().getTime(),
+            );
+        });
+
+        socket.on("cursor_update", function (data) {
+            var userCursor = document.getElementById(
+                "user-cursor-" + data.user_id,
+            );
+            if (!userCursor) {
+                userCursor = document.createElement("div");
+                userCursor.id = "user-cursor-" + data.user_id;
+                userCursor.style.position = "absolute";
+                userCursor.style.width = "10px";
+                userCursor.style.height = "10px";
+                userCursor.style.backgroundColor = data.color;
+                userCursor.style.borderRadius = "50%";
+                document.body.appendChild(userCursor);
+            }
+            userCursor.style.left = data.x + "px";
+            userCursor.style.top = data.y + "px";
+        });
+    });
+</script>
+
+<script>
+    var stage;
+    var player;
+    var trajComp; // To store the trajectory component
+
+    document.addEventListener("DOMContentLoaded", function () {
+        stage = new NGL.Stage("viewport");
+        var traj =
+            "{{ url_for('static', filename=session_id + '/' + traj_xtc) }}";
+        var load =
+            "{{ url_for('static', filename=session_id + '/' + native_pdb) }}";
+
+        if (load) {
+            stage
+                .loadFile(load, { defaultRepresentation: true })
+                .then(function (o) {
+                    stage.setParameters({ backgroundColor: "white" });
+                    stage.setParameters({ fogFar: 1000 });
+                    stage.setParameters({ fogNear: 0 });
+                    stage.setParameters({ clipFar: 1000 });
+                    stage.autoView();
+                    //stage.viewerControls.applyMatrix({{rotation_matrix}});
+                    o.setName("simulation-name");
+
+                    NGL.autoLoad(traj).then(function (frames) {
+                        trajComp = o.addTrajectory(frames);
+                        trajComp.trajectory.setFrame(1);
+                        player = new NGL.TrajectoryPlayer(trajComp.trajectory, {
+                            interpolateType: "spline",
+                        });
+
+                        // Initialize slider value and max based on frames length
+                        var frameSlider =
+                            document.getElementById("frame-slider");
+                        console.log(frames.length);
+                        frameSlider.value = 1;
+
+                        // Update frame when slider value changes
+                        frameSlider.addEventListener("input", updateFrame);
+                    });
+                });
+
+            // var pa = o.structure.getPrincipalAxes();
+
+            // Example of a rotation matrix that can be used as input
+            //
+
+            // stage.autoView();
+        }
+
+        var toggleTheme = document.getElementById("toggleTheme");
+        var isLight = false;
+        toggleTheme.addEventListener("click", function () {
+            stage.setParameters({
+                backgroundColor: isLight ? "black" : "white",
+            });
+            isLight = !isLight;
+        });
+
+        var toggleSpin = document.getElementById("toggleSpin");
+        var isSpinning = false;
+        toggleSpin.addEventListener("click", function () {
+            stage.setSpin(
+                isSpinning ? null : [0, 1, 0],
+                isSpinning ? null : 0.01,
+            );
+            isSpinning = !isSpinning;
+        });
+
+        var toggleSideChains = document.getElementById("toggleSideChains");
+        toggleSideChains.addEventListener("click", function () {
+            var representations = stage.getRepresentationsByName("licorice");
+            if (representations) {
+                representations.list.forEach(function (repre) {
+                    repre.setVisibility(!repre.visible);
+                });
+            }
+        });
+
+        var toggleRunMDs = document.getElementById("toggleRunMDs");
+        var isRunning = false;
+        toggleRunMDs.addEventListener("click", function () {
+            if (trajComp) {
+                player = new NGL.TrajectoryPlayer(trajComp.trajectory, {
+                    interpolateType: "spline",
+                });
+                if (!isRunning) {
+                    player.play();
+                } else {
+                    player.pause();
+                }
+                isRunning = !isRunning;
+            }
+        });
+
+        function updateFrame(event) {
+            var frameIndex = parseInt(event.target.value);
+            if (player) {
+                trajComp.trajectory.setFrame(frameIndex);
+                //var frameSlider = document.getElementById("frame-slider");
+                //frameSlider.value = frameIndex;
+                //socket.emit("frame_update", { frame: frameIndex });
+            }
+        }
+
+        function togglePlayPause() {
+            if (player) {
+                player.toggle();
+                var playPauseButton =
+                    document.getElementById("play-pause-button");
+                playPauseButton.textContent = player.isPlaying
+                    ? "Pause"
+                    : "Play";
+            }
+        }
+
+        var frameSlider = document.getElementById("frame-slider");
+        var frameNumber = document.getElementById("frame-number");
+
+        frameSlider.addEventListener("input", function () {
+            frameNumber.value = frameSlider.value;
+            updateFrame({ target: frameSlider });
+        });
+
+        frameNumber.addEventListener("input", function () {
+            frameSlider.value = frameNumber.value;
+            updateFrame({ target: frameNumber });
+        });
+
+        // Attach event listener to play/pause button
+        document
+            .getElementById("play-pause-button")
+            .addEventListener("click", togglePlayPause);
+    });
+</script>
+
+<style>
+    .flex-container {
+        display: flex;
+        align-items: center; /* Align items vertically in the center */
+    }
+    .plot {
+        flex: 1; /* Allow the plot to take up available space */
+        align-self: center;
+    }
+    .torsion-image {
+        margin-left: 10px;
+        max-width: 1000px;
+    }
+    .expanded {
+        position: fixed;
+        top: 10%;
+        left: 10%;
+        width: 80%;
+        height: 80%;
+        z-index: 10;
+        background-color: white;
+        padding: 20px;
+        box-shadow: 0px 0px 15px rgba(0, 0, 0, 0.2);
+        transition: all 0.3s ease-in-out;
+        overflow: auto;
+    }
+</style>
+
+{% endblock %}
