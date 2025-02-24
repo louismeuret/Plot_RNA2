@@ -114,45 +114,53 @@ def make_matrix_energy(matrix_probability, maximal, dimension):
 	return(matrix_energy_rescaled, real_values)
 
 def energy_plot(matrix_energy_rescaled, bin_size_Q, bin_size_RMSD, maximal_RMSD, real_values, squares, path_landscape):
-	#now let's make the figure:
-	#initialize...
-	colors = ["#ff0000", "#0000ff"]
-	custom_cmap = LinearSegmentedColormap.from_list("custom_cmap", colors)
-	fig, ax= plt.subplots(figsize=(10, 10))
-	ax.set_title('-ln(p) (frequency)')
-	colours = dict(zip(squares, plt.cm.tab10.colors[:len(squares)]))
-	from string import ascii_uppercase
-	labels=dict(zip(squares,[ascii_uppercase[i] for i in range(len(squares))]))
-	#plan graph...
-	ax.set_aspect('equal')
-	ax.set_xlim([0, 1])
-	ax.set_ylim([0, maximal_RMSD])
-	ax.autoscale(enable=True, axis='y',tight=True)
-	xlocs, xticks=plt.xticks(np.arange(0, 1.1, 0.1), rotation=90)
-	xticks[0].set_visible(False)
-	ylocs, yticks=plt.yticks(np.arange(0, maximal_RMSD, 0.1))
-	yticks[0].set_visible(False)
-	plt.tick_params (axis = "both", which = "both", bottom = True, top = False, left=True, right=False)
-	plt.xlabel('Q (Froebenius distance)', fontsize=14)
-	plt.ylabel('RMSD (nm)', fontsize=14)
-	#generate the plot
-	#cmap = plt.cm.get_cmap('RdYlBu') #grab standard colormap
-	cmap=custom_cmap.reversed() #inverts color range to get blue for lower energy as convention!!
-	cmap.set_over('white') #needed to set all values above threshold=unreal values to white
-	p=plt.imshow(matrix_energy_rescaled.T, origin='lower', extent=[0,1,0.01,maximal_RMSD], interpolation='gaussian', aspect=float(bin_size_Q/bin_size_RMSD), cmap=cmap, vmax=np.amax(real_values)) #set aspect to ratio of x unity/y unity to get square plot
-	#cbar=plt.colorbar(p, ax=ax, ticks=np.arange(np.amin(matrix_energy_rescaled.T), np.amax(real_values), 1.0), shrink=0.82)
-	cbar=plt.colorbar(p, ax=ax, ticks=np.arange(1, np.amax(real_values), 1.0), shrink=0.805)
-	plt.clim(2.5, np.amax(real_values)) #sets range for colorbar
-	cbar.set_label('-ln(p)', fontsize=14, rotation=90)
-	#optional grid to help select ranges of Q and RMSD:
-	plt.grid()
-	#optional to show regin where you extracted intermediates:
-	for tupl in squares:
-		from matplotlib.patches import Rectangle
-		ax.add_patch(Rectangle((tupl[0], tupl[2]), float(tupl[1]-tupl[0]), float(tupl[3]-tupl[2]), edgecolor=colours[tupl], facecolor="None" ,label=labels[tupl], linewidth=1.5 ))
-	ax.legend(loc='upper right', framealpha=1, edgecolor='white')
-	#plt.show()
-	plt.savefig(path_landscape)
+    # Clip the data to the range [0, 0.9] in both directions
+    matrix_energy_rescaled = np.clip(matrix_energy_rescaled, 0, 0.9)
+
+    # Initialize...
+    colors = ["#ff0000", "#0000ff"]
+    custom_cmap = LinearSegmentedColormap.from_list("custom_cmap", colors)
+    fig, ax = plt.subplots(figsize=(10, 10))
+    ax.set_title('-ln(p) (frequency)')
+    colours = dict(zip(squares, plt.cm.tab10.colors[:len(squares)]))
+    from string import ascii_uppercase
+    labels = dict(zip(squares, [ascii_uppercase[i] for i in range(len(squares))]))
+
+    # Plan graph...
+    ax.set_aspect('equal')
+    ax.set_xlim([0, 0.9])
+    ax.set_ylim([0, 0.9])
+    ax.autoscale(enable=True, axis='y', tight=True)
+    xlocs, xticks = plt.xticks(np.arange(0, 1.1, 0.1), rotation=90)
+    xticks[0].set_visible(False)
+    ylocs, yticks = plt.yticks(np.arange(0, maximal_RMSD, 0.1))
+    yticks[0].set_visible(False)
+    plt.tick_params(axis="both", which="both", bottom=True, top=False, left=True, right=False)
+    plt.xlabel('Q (Froebenius distance)', fontsize=14)
+    plt.ylabel('RMSD (nm)', fontsize=14)
+
+    # Generate the plot
+    cmap = custom_cmap.reversed()  # Inverts color range to get blue for lower energy as convention!!
+    cmap.set_over('white')  # Needed to set all values above threshold=unreal values to white
+    p = plt.imshow(matrix_energy_rescaled.T, origin='lower', extent=[0, 1, 0.01, maximal_RMSD],
+                   interpolation='gaussian', aspect=float(bin_size_Q / bin_size_RMSD), cmap=cmap,
+                   vmax=0.9)  # Set vmax to 0.9 to exclude values beyond 0.9
+    cbar = plt.colorbar(p, ax=ax, ticks=np.arange(1, 0.9, 1.0), shrink=0.805)
+    plt.clim(2.5, 0.9)  # Sets range for colorbar to exclude values beyond 0.9
+    cbar.set_label('-ln(p)', fontsize=14, rotation=90)
+
+    # Optional grid to help select ranges of Q and RMSD:
+    plt.grid()
+
+    # Optional to show region where you extracted intermediates:
+    for tupl in squares:
+        from matplotlib.patches import Rectangle
+        ax.add_patch(Rectangle((tupl[0], tupl[2]), float(tupl[1] - tupl[0]), float(tupl[3] - tupl[2]),
+                               edgecolor=colours[tupl], facecolor="None", label=labels[tupl], linewidth=1.5))
+    ax.legend(loc='upper right', framealpha=1, edgecolor='white')
+
+    # Save the plot
+    plt.savefig(path_landscape)
 
 
 #inputs:

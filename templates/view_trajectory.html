@@ -1,90 +1,43 @@
 {% extends 'layout.html' %} {% block content %}
-
 <section class="section" style="padding: 0 20px">
     <div class="content">
-        <div class="box" style="max-width: 600px; margin: auto; padding: 10px; display: flex; align-items: center;">
+        <!-- Header Box -->
+        <div id="header-box" class="box" style="max-width: 600px; margin: auto; padding: 10px; display: flex; align-items: center; z-index: 11; transition: opacity 0.3s ease;">
             <div style="flex: 1;">
                 <h1 class="title" style="font-size: 1.5em;">Trajectory Viewer</h1>
                 <div style="display: flex; align-items: center;">
-                    <h3 class="title" style="font-size: 1.2em; " id="session-id">{{session_id}}</h3>
-                    <button class="button is-small ml-2" onclick="copyToClipboard('{{ session_id }}')" onmouseover="document.getElementById('session-id').style.display='block'" onmouseout="document.getElementById('session-id').style.display='none'">Copy Link</button>
+                    <h3 class="title" style="font-size: 1.2em;" id="session-id">{{session_id}}</h3>
                 </div>
             </div>
-            <a href="{{ url_for('index') }}" class="button is-link" style="flex: 0 0 auto; margin-left: 10px;">Back to Home</a>
         </div>
 
-        <div class="columns is-fullheight" style="align-items: flex-start">
-            <!-- First Column: Viewer and Player Controls Section -->
-            <div class="column is-half is-fullheight">
-                <div
-                    class="box"
-                    style="
-                        position: sticky;
-                        top: 0;
-                        z-index: 9;
-                        background: white;
-                    "
-                >
+        <div class="columns is-multiline is-fullheight" style="align-items: flex-start; height: 100vh;">
+            <!-- First Column: Viewer and Controls -->
+            <div class="column is-half is-fullheight" style="display: flex; flex-direction: column;">
+                <div class="box" style="position: sticky; top: 0; z-index: 9; background: white; border-radius: 10px; padding: 10px; overflow: hidden;">
                     <!-- Viewer Section -->
-                    <div id="viewport" style="width: 100%; height: 400px"></div>
-
+                    <div id="viewport" style="width: 100%; height: 400px; z-index: 1; border-radius: 8px; overflow: hidden;"></div>
+                
                     <!-- Player Controls -->
-                    <div
-                        id="player-controls"
-                        class="field is-grouped is-grouped-centered mt-4"
-                    >
-                        <input
-                            type="range"
-                            id="frame-slider"
-                            min="0"
-                            max="{{ trajectory_length - 1}}"
-                            value="0"
-                            step="1"
-                            class="slider is-fullwidth"
-                            style="width: 70%"
-                        />
-                        <input
-                            type="number"
-                            id="frame-number"
-                            min="0"
-                            max="{{ trajectory_length - 1}}"
-                            value="0"
-                            step="1"
-                            class="input ml-2"
-                            style="width: 10%"
-                        />
-                        <button
-                            id="play-pause-button"
-                            class="button is-primary ml-2"
-                        >
-                            Play
-                        </button>
+                    <div id="player-controls" class="field is-grouped is-grouped-centered mt-4">
+                        <input type="range" id="frame-slider" min="0" max="{{ trajectory_length - 1}}" value="0" step="1" class="slider is-fullwidth" style="width: 70%; z-index: 10;" />
+                        <input type="number" id="frame-number" min="0" max="{{ trajectory_length - 1}}" value="0" step="1" class="input ml-2" style="width: 10%" />
+                        <button id="play-pause-button" class="button is-primary ml-2">Play</button>
                     </div>
-
+                
                     <!-- Toggle Buttons -->
                     <div class="buttons is-centered mt-4">
-                        <button id="toggleSpin" class="button">
-                            Spin On/Off
-                        </button>
-                        <button id="toggleTheme" class="button">
-                            Light/Dark Background
-                        </button>
-                        <button id="toggleRunMDs" class="button">
-                            Start/Stop MD
-                        </button>
-                        <button id="toggleSideChains" class="button">
-                            Show/Hide Sidechains
-                        </button>
+                        <button id="toggleSpin" class="button">Spin On/Off</button>
+                        <button id="toggleTheme" class="button">Light/Dark Background</button>
+                        <button id="toggleRunMDs" class="button">Start/Stop MD</button>
+                        <button id="toggleSideChains" class="button">Show/Hide Sidechains</button>
                     </div>
                 </div>
             </div>
 
             <!-- Second Column: Plots and Images -->
-            <div
-                class="column is-half is-fullheight"
-                style="overflow-y: auto; max-height: 90vh"
-            >
-                <div id="sortable-container">
+            <div class="column is-half is-fullheight" style="overflow-y: auto; height: 100%; max-height: 90vh; display: flex; flex-direction: column;">
+                <div id="sortable-container" style="margin-top: 0;">
                     {% for plot_info in plot_data %}
                         {% if plot_info[0] == "TORSION" %}
                             {% include '_plot_torsion.html' %}
@@ -113,6 +66,25 @@
     </div>
 </section>
 
+<script>
+    // Fade out the header box on scroll
+    const headerBox = document.getElementById("header-box");
+    window.addEventListener("scroll", () => {
+        const scrollPosition = window.scrollY;
+        if (scrollPosition > 50) {
+            headerBox.style.opacity = "0";
+        } else {
+            headerBox.style.opacity = "1";
+        }
+    });
+
+    // Disable scrolling on the entire page except the right column
+    document.body.style.overflow = "hidden"; // Prevent scrolling on the body
+    const rightColumn = document.querySelector(".column.is-half.is-fullheight");
+    rightColumn.style.overflowY = "auto"; // Allow scrolling only in the right column
+</script>
+
+<!-- Rest of your scripts (shareSession, Sortable, socket, Molstar viewer, etc.) -->
 <script>
     function shareSession() {
         const sessionId = "{{ session_id }}";
@@ -192,142 +164,165 @@
 </script>
 
 <script>
-    var stage;
-    var player;
-    var trajComp; // To store the trajectory component
+    let viewer;
+    let player;
+    let isRunning = false;
+    let isLight = false;
+    let isSpinning = false;
 
     document.addEventListener("DOMContentLoaded", function () {
-        stage = new NGL.Stage("viewport");
-        var traj =
-            "{{ url_for('static', filename=session_id + '/' + traj_xtc) }}";
-        var load =
-            "{{ url_for('static', filename=session_id + '/' + native_pdb) }}";
+        // Initialize Molstar viewer
+        molstar.Viewer.create("viewport", {
+            emdbProvider: "rcsb",
+            layoutShowLeftPanel: true,
+            layoutShowRemoteState: false,
+            viewportShowAnimation: true,
+            pdbProvider: "rcsb",
+            layoutShowSequence: false,
+            viewportShowSelectionMode: false,
+            layoutShowLog: false,
+            viewportShowExpand: false,
+            layoutShowControls: false,
+            layoutIsExpanded: false,
+        }).then((v) => {
+            viewer = v;
 
-        if (load) {
-            stage
-                .loadFile(load, { defaultRepresentation: true })
-                .then(function (o) {
-                    stage.setParameters({ backgroundColor: "white" });
-                    stage.setParameters({ fogFar: 1000 });
-                    stage.setParameters({ fogNear: 0 });
-                    stage.setParameters({ clipFar: 1000 });
-                    stage.autoView();
-                    //stage.viewerControls.applyMatrix({{rotation_matrix}});
-                    o.setName("simulation-name");
+            // Load the initial structure and trajectory
+            const trajUrl = "{{ url_for('static', filename=session_id + '/' + traj_xtc) }}";
+            const pdbUrl = "{{ url_for('static', filename=session_id + '/' + native_pdb) }}";
 
-                    NGL.autoLoad(traj).then(function (frames) {
-                        trajComp = o.addTrajectory(frames);
-                        trajComp.trajectory.setFrame(1);
-                        player = new NGL.TrajectoryPlayer(trajComp.trajectory, {
-                            interpolateType: "spline",
-                        });
+            viewer
+                .loadTrajectory({
+                    model: {
+                        kind: "model-url",
+                        url: pdbUrl,
+                        format: "pdb",
+                    },
+                    coordinates: {
+                        kind: "coordinates-url",
+                        url: trajUrl,
+                        format: "xtc",
+                        isBinary: true,
+                    },
+                    preset: "default",
+                })
+                .then(() => {
+                    console.log("Trajectory loaded successfully.");
 
-                        // Initialize slider value and max based on frames length
-                        var frameSlider =
-                            document.getElementById("frame-slider");
-                        console.log(frames.length);
-                        frameSlider.value = 1;
+                    // Initialize slider
+                    const frameSlider = document.getElementById("frame-slider");
+                    const frameNumber = document.getElementById("frame-number");
 
-                        // Update frame when slider value changes
-                        frameSlider.addEventListener("input", updateFrame);
+                    frameSlider.addEventListener("input", function () {
+                        const frame = parseInt(frameSlider.value);
+                        frameNumber.value = frame;
+                        changeFrame(frame);
                     });
+
+                    frameNumber.addEventListener("input", function () {
+                        const frame = parseInt(frameNumber.value);
+                        frameSlider.value = frame;
+                        changeFrame(frame);
+                    });
+                })
+                .catch((error) => {
+                    console.error("Error loading trajectory:", error);
                 });
+        });
 
-            // var pa = o.structure.getPrincipalAxes();
-
-            // Example of a rotation matrix that can be used as input
-            //
-
-            // stage.autoView();
-        }
-
-        var toggleTheme = document.getElementById("toggleTheme");
-        var isLight = false;
+        // Theme toggle
+        const toggleTheme = document.getElementById("toggleTheme");
         toggleTheme.addEventListener("click", function () {
-            stage.setParameters({
-                backgroundColor: isLight ? "black" : "white",
+            viewer.setProps({
+                theme: isLight ? { global: { background: "black" } } : { global: { background: "white" } },
             });
             isLight = !isLight;
         });
 
-        var toggleSpin = document.getElementById("toggleSpin");
-        var isSpinning = false;
+        // Spin toggle
+        const toggleSpin = document.getElementById("toggleSpin");
         toggleSpin.addEventListener("click", function () {
-            stage.setSpin(
-                isSpinning ? null : [0, 1, 0],
-                isSpinning ? null : 0.01,
-            );
+            viewer.plugin.canvas3d?.setProps({
+                trackball: {
+                    spin: isSpinning ? false : [0, 1, 0],
+                    spinSpeed: isSpinning ? 0 : 0.01,
+                },
+            });
             isSpinning = !isSpinning;
         });
 
-        var toggleSideChains = document.getElementById("toggleSideChains");
-        toggleSideChains.addEventListener("click", function () {
-            var representations = stage.getRepresentationsByName("licorice");
-            if (representations) {
-                representations.list.forEach(function (repre) {
-                    repre.setVisibility(!repre.visible);
-                });
-            }
-        });
-
-        var toggleRunMDs = document.getElementById("toggleRunMDs");
-        var isRunning = false;
+        // Play/pause trajectory
+        const toggleRunMDs = document.getElementById("toggleRunMDs");
         toggleRunMDs.addEventListener("click", function () {
-            if (trajComp) {
-                player = new NGL.TrajectoryPlayer(trajComp.trajectory, {
-                    interpolateType: "spline",
-                });
-                if (!isRunning) {
-                    player.play();
-                } else {
-                    player.pause();
-                }
-                isRunning = !isRunning;
+            if (!isRunning) {
+                player = viewer.plugin.managers.animation.play();
+            } else {
+                viewer.plugin.managers.animation.pause();
             }
+            isRunning = !isRunning;
         });
 
-        function updateFrame(event) {
-            var frameIndex = parseInt(event.target.value);
-            if (player) {
-                trajComp.trajectory.setFrame(frameIndex);
-                //var frameSlider = document.getElementById("frame-slider");
-                //frameSlider.value = frameIndex;
-                //socket.emit("frame_update", { frame: frameIndex });
+        // Update frame function
+        function changeFrame(idx) {
+            if (!viewer) {
+                console.error("Viewer not initialized.");
+                return;
+            }
+
+            const plugin = viewer.plugin;
+            const state = plugin.state.data;
+
+            // Get the first model from the structure hierarchy
+            const models = plugin.managers.structure.hierarchy.current.models;
+            if (!models.length) {
+                console.error("No models found in the hierarchy.");
+                return;
+            }
+
+            let model = models[1].cell.transform.ref;
+            let update = state.build();
+
+            update.to(model).update({ modelIndex: idx });
+            update.commit();
+
+            try {
+                state.updateTree(update); // No .then() since this is synchronous
+                console.log(`Frame updated to ${idx}`);
+            } catch (err) {
+                console.error("Error updating frame:", err);
             }
         }
 
-        function togglePlayPause() {
-            if (player) {
-                player.toggle();
-                var playPauseButton =
-                    document.getElementById("play-pause-button");
-                playPauseButton.textContent = player.isPlaying
-                    ? "Pause"
-                    : "Play";
+        // Play/pause button
+        const playPauseButton = document.getElementById("play-pause-button");
+        playPauseButton.addEventListener("click", function () {
+            if (!isRunning) {
+                player = viewer.plugin.managers.animation.play();
+                playPauseButton.textContent = "Pause";
+            } else {
+                viewer.plugin.managers.animation.pause();
+                playPauseButton.textContent = "Play";
             }
-        }
-
-        var frameSlider = document.getElementById("frame-slider");
-        var frameNumber = document.getElementById("frame-number");
-
-        frameSlider.addEventListener("input", function () {
-            frameNumber.value = frameSlider.value;
-            updateFrame({ target: frameSlider });
+            isRunning = !isRunning;
         });
-
-        frameNumber.addEventListener("input", function () {
-            frameSlider.value = frameNumber.value;
-            updateFrame({ target: frameNumber });
-        });
-
-        // Attach event listener to play/pause button
-        document
-            .getElementById("play-pause-button")
-            .addEventListener("click", togglePlayPause);
     });
 </script>
-
 <style>
+    @media screen and (max-width: 768px) {
+        .section {
+            padding: 10px !important; /* Reduce padding around the section */
+        }
+        
+        .box {
+            margin: 5px !important; /* Reduce margin around the box */
+            padding: 10px !important; /* Reduce padding inside the box */
+        }
+
+        .content {
+            padding: 0 !important; /* Remove extra spacing if needed */
+        }
+    }
+
     .flex-container {
         display: flex;
         align-items: center; /* Align items vertically in the center */
