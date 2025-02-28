@@ -1,0 +1,405 @@
+<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <title>Plot Generation Documentation</title>
+        <!-- Bulma CSS -->
+        <link
+            href="https://cdn.jsdelivr.net/npm/bulma@0.9.3/css/bulma.min.css"
+            rel="stylesheet"
+        />
+        <link
+            rel="stylesheet"
+            href="https://cdn.jsdelivr.net/npm/xterm/css/xterm.css"
+        />
+        <link
+            rel="shortcut icon"
+            href="{{ url_for('static', filename='favicon.ico') }}"
+        />
+        <style>
+            body,
+            html {
+                margin: 0;
+                padding: 0;
+                height: 100%;
+                background-color: #f0f0f0; /* Ensure background color is set */
+                position: relative; /* Establish stacking context */
+            }
+            .container {
+                position: relative;
+                z-index: 1; /* Ensure container content is above canvas */
+            }
+            canvas {
+                position: absolute;
+                top: 0;
+                left: 0;
+                width: 100%;
+                height: 100%;
+                z-index: 0; /* Place the canvas behind other content */
+            }
+            #terminal-container {
+                width: 50%;
+                height: 300px;
+                margin: auto;
+                display: none;
+            }
+            #overlay {
+                display: none;
+                position: fixed;
+                top: 0;
+                left: 0;
+                width: 100%;
+                height: 100%;
+                background: rgba(0, 0, 0, 0.5);
+                backdrop-filter: blur(5px);
+                z-index: 2;
+                justify-content: center;
+                align-items: center;
+            }
+            #overlay .box {
+                width: 50%;
+                padding: 20px;
+                background: white;
+                box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+                text-align: center;
+            }
+            .source-box {
+                background-color: #e0e0e0; /* Different background color for sources */
+            }
+        </style>
+    </head>
+    <body>
+        <div style="height: 20px"></div>
+        <div id="terminal-container"></div>
+        <div class="container mt-5">
+            <div class="box">
+                <h1
+                    class="title"
+                    style="
+                        font-size: 2.5em;
+                        font-family: &quot;Arial&quot;, sans-serif;
+                        color: #333;
+                    "
+                >
+                    Plot Generation Documentation
+                </h1>
+                <p class="subtitle">
+                    This page provides documentation for the various plot
+                    generation options available in the Plot RNA web
+                    application. Each plot type is described along with its
+                    purpose and usage, and technology stack used for
+                </p>
+            </div>
+            <div class="box">
+                <h2
+                    class="title"
+                    style="
+                        font-size: 2em;
+                        font-family: &quot;Arial&quot;, sans-serif;
+                        color: #333;
+                    "
+                >
+                    1. Contact Maps Plot
+                </h2>
+                <p class="subtitle">
+                    Generates a contact map plot for a given trajectory and
+                    native PDB file. Visualizes the contacts between residues in
+                    the protein structure over the trajectory. Each cell
+                    correspond to index of atoms in the topology file, after
+                    parsing of MDAnalysis Visualisation is made using
+                    matplotlib.
+                </p>
+            </div>
+            <div class="box">
+                <h2
+                    class="title"
+                    style="
+                        font-size: 2em;
+                        font-family: &quot;Arial&quot;, sans-serif;
+                        color: #333;
+                    "
+                >
+                    2. RMSD Plot
+                </h2>
+                <p class="subtitle">
+                    Generates a plot of Root Mean Square Deviation (RMSD) for a
+                    given trajectory compared to a native structure. Measures
+                    the structural deviation of the trajectory from the native
+                    state. RMSD is computed on all the atoms, using barnaba
+                    function.
+                </p>
+                <figure class="image is-4by3">
+                    <img
+                        src="{{ url_for('static', filename='images/rmsd.png') }}"
+                        alt="RMSD Plot Example"
+                    />
+                </figure>
+            </div>
+            <div class="box">
+                <h2
+                    class="title"
+                    style="
+                        font-size: 2em;
+                        font-family: &quot;Arial&quot;, sans-serif;
+                        color: #333;
+                    "
+                >
+                    3. ERMSD Plot
+                </h2>
+                <p class="subtitle">
+                    Generates a plot of eRMSD for a given trajectory compared to
+                    a native structure. Measures the structural deviation of the
+                    trajectory from the native state, taking into acount escore,
+                    derived from the position of base pairs
+                    <a href="#source-1">Bottaro et al., 2014</a>.
+                </p>
+            </div>
+            <div class="box">
+                <h2
+                    class="title"
+                    style="
+                        font-size: 2em;
+                        font-family: &quot;Arial&quot;, sans-serif;
+                        color: #333;
+                    "
+                >
+                    4. Torsion Angles Plot
+                </h2>
+                <p class="subtitle">
+                    Generates a plot of torsion angles against time or against
+                    another torsion angle, for a given trajectory. Visualizes
+                    the angles over the trajectory. You need to input a valid
+                    name in the form of "CHAIN_POSITION_" for it to works. If
+                    nothing is entered but angle is selected, it will procede to
+                    the computation of Eta against Theta Angle.
+                </p>
+            </div>
+            <div class="box">
+                <h2
+                    class="title"
+                    style="
+                        font-size: 2em;
+                        font-family: &quot;Arial&quot;, sans-serif;
+                        color: #333;
+                    "
+                >
+                    5. Secondary Structure Plot
+                </h2>
+                <p class="subtitle">
+                    Visualize the secondary structure of the displayed frame,
+                    the secondary structure is computed via Barnaba, and the
+                    visualisation is done using Forna.
+                </p>
+            </div>
+            <div class="box">
+                <h2
+                    class="title"
+                    style="
+                        font-size: 2em;
+                        font-family: &quot;Arial&quot;, sans-serif;
+                        color: #333;
+                    "
+                >
+                    6. Arc Plot
+                </h2>
+                <p class="subtitle">
+                    Generates an Arc plot illustrating base pairing interactions
+                    within the RNA structure. Each nucleotide is connected to
+                    another if a base pair is formed during the trajectory. The
+                    color represents the frequency of each contact throughout
+                    the trajectory.
+                </p>
+            </div>
+            <div class="box">
+                <h2
+                    class="title"
+                    style="
+                        font-size: 2em;
+                        font-family: &quot;Arial&quot;, sans-serif;
+                        color: #333;
+                    "
+                >
+                    7. Annotate Plot
+                </h2>
+                <p class="subtitle">
+                    Generates an annotation plot for a given trajectory.
+                    Annotates structural features in the trajectory.
+                </p>
+            </div>
+            <div class="box">
+                <h2
+                    class="title"
+                    style="
+                        font-size: 2em;
+                        font-family: &quot;Arial&quot;, sans-serif;
+                        color: #333;
+                    "
+                >
+                    8. Dot-Bracket Plot
+                </h2>
+                <p class="subtitle">
+                    For this plot, we're computing the Dotbracket information
+                    (representing in a format of string the secondary
+                    structure), and we're ploting along time the position of
+                    each dotbracket structure: it gives some insight on how the
+                    structure are transitioning from one to another.
+                </p>
+            </div>
+            <div class="box">
+                <h2
+                    class="title"
+                    style="
+                        font-size: 2em;
+                        font-family: &quot;Arial&quot;, sans-serif;
+                        color: #333;
+                    "
+                >
+                    9. 2D Base Pairing
+                </h2>
+                <p class="subtitle">
+                    Visualizes the positions of nucleobases along the
+                    trajectory, with color indicating the frequency of their
+                    positions. All base position data are aggregated into this
+                    plot, meaning precision decreases as the number of
+                    nucleotides increases. However, it still provides valuable
+                    insights into the forcefield's behavior. Data is obtained
+                    using Barnaba and visualized with Plotly.
+                </p>
+            </div>
+            <div class="box">
+                <h2
+                    class="title"
+                    style="
+                        font-size: 2em;
+                        font-family: &quot;Arial&quot;, sans-serif;
+                        color: #333;
+                    "
+                >
+                    10. Landscape Plot
+                </h2>
+                <p class="subtitle">
+                    Generates a 3D landscape plot for a given trajectory.
+                    Visualizes the energy landscape of the trajectory based on
+                    RMSD and Q values, the depth is calculated by the number of
+                    structures found in the same positions.
+                </p>
+            </div>
+            <div class="box">
+                <h2
+                    class="title"
+                    style="
+                        font-size: 2em;
+                        font-family: &quot;Arial&quot;, sans-serif;
+                        color: #333;
+                    "
+                >
+                    11. DS Motif Plot (Placeholder)
+                </h2>
+                <p class="subtitle">
+                    Placeholder for generating a DS motif plot. To be
+                    implemented for visualizing DS motifs.
+                </p>
+            </div>
+            <div class="box">
+                <h2
+                    class="title"
+                    style="
+                        font-size: 2em;
+                        font-family: &quot;Arial&quot;, sans-serif;
+                        color: #333;
+                    "
+                >
+                    12. SS Motif Plot (Placeholder)
+                </h2>
+                <p class="subtitle">
+                    Placeholder for generating an SS motif plot. To be
+                    implemented for visualizing SS motifs.
+                </p>
+            </div>
+            <div class="box">
+                <h2
+                    class="title"
+                    style="
+                        font-size: 2em;
+                        font-family: &quot;Arial&quot;, sans-serif;
+                        color: #333;
+                    "
+                >
+                    13. J-Coupling Plot
+                </h2>
+                <p class="subtitle">
+                    Generates a J-coupling plot for a given trajectory.
+                    Visualizes the J-coupling constants over the trajectory.
+                </p>
+            </div>
+            <div class="box">
+                <h2
+                    class="title"
+                    style="
+                        font-size: 2em;
+                        font-family: &quot;Arial&quot;, sans-serif;
+                        color: #333;
+                    "
+                >
+                    14. Escore Plot (Placeholder)
+                </h2>
+                <p class="subtitle">
+                    Placeholder for generating an Escore plot. To be implemented
+                    for visualizing Escore values.
+                </p>
+            </div>
+
+            <div class="box source-box">
+                <h2
+                    class="title"
+                    style="
+                        font-size: 2em;
+                        font-family: &quot;Arial&quot;, sans-serif;
+                        color: #333;
+                    "
+                >
+                    Sources
+                </h2>
+                <p class="subtitle" id="source-1">
+                    Bottaro S, Di Palma F, Bussi G. The role of nucleobase
+                    interactions in RNA structure and dynamics. Nucleic Acids
+                    Res. 2014 Dec 1;42(21):13306-14. doi: 10.1093/nar/gku972.
+                    Epub 2014 Oct 29. PMID: 25355509; PMCID: PMC4245972.
+                </p>
+            </div>
+        </div>
+
+        <!-- Bootstrap JS (Optional) -->
+        <link
+            href=" https://cdn.jsdelivr.net/npm/bulma-tooltip@3.0.2/dist/css/bulma-tooltip.min.css "
+            rel="stylesheet"
+        />
+        <script
+            src="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/js/all.min.js"
+            integrity="sha512-u3fPA7V8qQmhBPNT5quvaXVa1mnnLSXUep5PS1qo5NRzHwG6Ls7i6U/mkkaduKaBhlAXv9k"
+            crossorigin="anonymous"
+            referrerpolicy="no-referrer"
+        ></script>
+
+        <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.4.0/p5.js"></script>
+        <script src="https://cdnjs.cloudflare.com/ajax/libs/matter-js/0.17.1/matter.min.js"></script>
+        <script src="{{ url_for('static', filename='js/app.js') }}"></script>
+        <script
+            src="https://code.jquery.com/jquery-3.3.1.slim.min.js"
+            integrity="sha384-q8i/X+965DzO0rT7abK41JStQIAqVgRVzpbzo5smXKp4YfRvH+8abtTE1Pi6jizo"
+            crossorigin="anonymous"
+        ></script>
+        <script
+            src="https://cdn.jsdelivr.net/npm/popper.js@1.14.6/dist/umd/popper.min.js"
+            integrity="sha384-wHAiFfRlMFy6i5SRaxvfOCifBUQy1xHdJ/yoi7FRNXMRBu5WHdZYu1hA6ZOblgut"
+            crossorigin="anonymous"
+        ></script>
+        <script
+            src="https://cdn.jsdelivr.net/npm/bootstrap@4.2.1/dist/js/bootstrap.min.js"
+            integrity="sha384-B0UglyR+jN6CkvvICOB2joaf5I4l3gm9GU6Hc1og6Ls7i6U/mkkaduKaBhlAXv9k"
+            crossorigin="anonymous"
+        ></script>
+        <div style="height: 20px"></div>
+    </body>
+</html>

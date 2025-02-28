@@ -1,65 +1,209 @@
 {% extends 'layout.html' %} {% block content %}
 <section class="section" style="padding: 0 20px">
-    <div class="content">
-        <!-- Header Box -->
-        <div id="header-box" class="box" style="max-width: 600px; margin: auto; padding: 10px; display: flex; align-items: center; z-index: 11; transition: opacity 0.3s ease;">
-            <div style="flex: 1;">
-                <h1 class="title" style="font-size: 1.5em;">Trajectory Viewer</h1>
-                <div style="display: flex; align-items: center;">
-                    <h3 class="title" style="font-size: 1.2em;" id="session-id">{{session_id}}</h3>
-                </div>
-            </div>
+    <div
+        id="header-box"
+        class="box"
+        style="
+            max-width: 90%;
+            margin: 20px auto;
+            padding: 24px;
+            display: flex;
+            flex-direction: row;
+            align-items: center;
+            justify-content: space-between;
+            border-radius: 12px;
+            box-shadow: 0 6px 12px rgba(0, 0, 0, 0.15);
+            background: #fff;
+            border: 1px solid #ddd;
+            transition: all 0.3s ease;
+        "
+    >
+        <!-- Title Box -->
+        <div style="flex: 1; text-align: left;">
+            <h1 class="title" style="font-size: 1.9em; color: #333; font-weight: 600;">
+                Trajectory Viewer
+            </h1>
         </div>
 
-        <div class="columns is-multiline is-fullheight" style="align-items: flex-start; height: 100vh;">
+        <!-- Session ID Box -->
+        <div style="
+            flex: 2;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            gap: 12px;
+            text-align: center;
+        ">
+            <h3 class="title" style="font-size: 1.2em; color: #666; font-weight: 500;">
+                Session: <span id="session-id" style="color: #007bff;">{{ session_id }}</span>
+            </h3>
+            <p style="font-size: 1em; color: #444; max-width: 400px;">
+                The session ID uniquely identifies your trajectory visualization session. You can share this link with others to allow them to view your session.
+            </p>
+            <button
+                onclick="shareSession()"
+                style="
+                    background: #007bff;
+                    color: white;
+                    padding: 8px 16px;
+                    border: none;
+                    border-radius: 8px;
+                    cursor: pointer;
+                    font-size: 1em;
+                    transition: background 0.2s;
+                "
+                onmouseover="this.style.background='#0056b3'"
+                onmouseout="this.style.background='#007bff'"
+            >
+                Share Session
+            </button>
+        </div>
+
+        <!-- Links Box -->
+        <div style="flex: 1; text-align: right;">
+            <div style="display: flex; gap: 16px;">
+                <a href="/cgu" style="color: #007bff; text-decoration: none; font-weight: 500;">Terms & Conditions</a>
+                <a href="/authors" style="color: #007bff; text-decoration: none; font-weight: 500;">Authors</a>
+                <a href="/help" style="color: #007bff; text-decoration: none; font-weight: 500;">Help</a>
+            </div>
+        </div>
+    </div>
+
+    <script>
+    function shareSession() {
+        const sessionId = document.getElementById("session-id").innerText;
+        const url = window.location.origin + "/session/" + sessionId;
+        navigator.clipboard.writeText(url).then(() => {
+            alert("Session link copied to clipboard: " + url);
+        });
+    }
+    </script>
+
+
+
+
+
+        <div
+            class="columns is-multiline is-fullheight"
+            style="
+                align-items: flex-start;
+                height: 100vh;
+                z-index: 9;
+                display: flex;
+                flex-direction: column;
+            "
+        >
             <!-- First Column: Viewer and Controls -->
-            <div class="column is-half is-fullheight" style="display: flex; flex-direction: column;">
-                <div class="box" style="position: sticky; top: 0; z-index: 9; background: white; border-radius: 10px; padding: 10px; overflow: hidden;">
+            <div
+                class="column is-half is-fullheight"
+                style="display: flex; flex-direction: column; flex-grow: 1"
+            >
+                <div
+                    class="box"
+                    style="
+                        position: sticky;
+                        top: 20px;
+                        z-index: 9;
+                        background: white;
+                        border-radius: 10px;
+                        padding: 10px;
+                        overflow: hidden;
+                        margin-bottom: 20px;
+                        flex-grow: 1;
+                        display: flex;
+                        flex-direction: column;
+                    "
+                >
                     <!-- Viewer Section -->
-                    <div id="viewport" style="width: 100%; height: 400px; z-index: 1; border-radius: 8px; overflow: hidden;"></div>
-                
+                    <div
+                        id="viewport"
+                        style="
+                            width: 100%;
+                            flex-grow: 1;
+                            z-index: 1;
+                            border-radius: 8px;
+                            overflow: hidden;
+                            margin-bottom: 10px;
+                        "
+                    ></div>
+
                     <!-- Player Controls -->
-                    <div id="player-controls" class="field is-grouped is-grouped-centered mt-4">
-                        <input type="range" id="frame-slider" min="0" max="{{ trajectory_length - 1}}" value="0" step="1" class="slider is-fullwidth" style="width: 70%; z-index: 10;" />
-                        <input type="number" id="frame-number" min="0" max="{{ trajectory_length - 1}}" value="0" step="1" class="input ml-2" style="width: 10%" />
-                        <button id="play-pause-button" class="button is-primary ml-2">Play</button>
+                    <div
+                        id="player-controls"
+                        class="field is-grouped is-grouped-centered"
+                    >
+                        <input
+                            type="range"
+                            id="frame-slider"
+                            min="0"
+                            max="{{ trajectory_length - 1 }}"
+                            value="0"
+                            step="1"
+                            class="slider is-fullwidth"
+                            style="width: 70%; z-index: 10"
+                        />
+                        <input
+                            type="number"
+                            id="frame-number"
+                            min="0"
+                            max="{{ trajectory_length - 1 }}"
+                            value="0"
+                            step="1"
+                            class="input ml-2"
+                            style="width: 10%"
+                        />
+                        <button
+                            id="play-pause-button"
+                            class="button is-primary ml-2"
+                        >
+                            Play
+                        </button>
                     </div>
-                
+
                     <!-- Toggle Buttons -->
                     <div class="buttons is-centered mt-4">
-                        <button id="toggleSpin" class="button">Spin On/Off</button>
-                        <button id="toggleTheme" class="button">Light/Dark Background</button>
-                        <button id="toggleRunMDs" class="button">Start/Stop MD</button>
-                        <button id="toggleSideChains" class="button">Show/Hide Sidechains</button>
+                        <button id="toggleSpin" class="button">
+                            Spin On/Off
+                        </button>
+                        <button id="toggleTheme" class="button">
+                            Light/Dark Background
+                        </button>
+                        <button id="toggleRunMDs" class="button">
+                            Start/Stop MD
+                        </button>
+                        <button id="toggleSideChains" class="button">
+                            Show/Hide Sidechains
+                        </button>
                     </div>
                 </div>
             </div>
 
             <!-- Second Column: Plots and Images -->
-            <div class="column is-half is-fullheight" style="overflow-y: auto; height: 100%; max-height: 90vh; display: flex; flex-direction: column;">
-                <div id="sortable-container" style="margin-top: 0;">
-                    {% for plot_info in plot_data %}
-                        {% if plot_info[0] == "TORSION" %}
-                            {% include '_plot_torsion.html' %}
-                        {% elif plot_info[0] == "BASE_PAIRING" %}
-                            {% include '_plot_2Dbasepairing.html' %}
-                        {% elif plot_info[0] == "LANDSCAPE_PLT" %}
-                            {% include '_plot_landscape.html' %}
-                        {% elif plot_info[0] == "RMSD" %}
-                            {% include '_plot_rmsd.html' %}
-                        {% elif plot_info[0] == "ERMSD" %}
-                            {% include '_plot_ermsd.html' %}
-                        {% elif plot_info[0] == "SEC_STRUCTURE" %}
-                            {% include '_plot_secondary_structure.html' %}
-                        {% elif plot_info[0] == "CONTACT_MAPS" %}
-                            {% include '_plot_contacts.html' %}
-                            <script>
-                                console.log("Contact maps plot included");
-                            </script>
-                        {% else %}
-                            {% include '_plot_default.html' %}
-                        {% endif %}
-                    {% endfor %}
+            <div
+                class="column is-half is-fullheight"
+                style="
+                    overflow-y: auto;
+                    height: 100%;
+                    max-height: calc(100vh - 160px);
+                    display: flex;
+                    flex-direction: column;
+                    margin-top: 20px;
+                "
+            >
+                <div id="sortable-container" style="margin-top: 0">
+                    {% for plot_info in plot_data %} {% if plot_info[0] ==
+                    "TORSION" %} {% include '_plot_torsion.html' %} {% elif
+                    plot_info[0] == "BASE_PAIRING" %} {% include
+                    '_plot_2Dbasepairing.html' %} {% elif plot_info[0] ==
+                    "LANDSCAPE_PLT" %} {% include '_plot_landscape.html' %} {%
+                    elif plot_info[0] == "RMSD" %} {% include '_plot_rmsd.html'
+                    %} {% elif plot_info[0] == "ERMSD" %} {% include
+                    '_plot_ermsd.html' %} {% elif plot_info[0] ==
+                    "SEC_STRUCTURE" %} {% include
+                    '_plot_secondary_structure.html' %} {% elif plot_info[0] ==
+                    "CONTACT_MAPS" %} {% include '_plot_contacts.html' %} {%
+                    else %} {% include '_plot_default.html' %} {% endif %} {%
+                    endfor %}
                 </div>
             </div>
         </div>
@@ -71,55 +215,46 @@
     const headerBox = document.getElementById("header-box");
     window.addEventListener("scroll", () => {
         const scrollPosition = window.scrollY;
-        if (scrollPosition > 50) {
-            headerBox.style.opacity = "0";
-        } else {
-            headerBox.style.opacity = "1";
-        }
+        headerBox.style.opacity = scrollPosition > 50 ? "0" : "1";
     });
 
     // Disable scrolling on the entire page except the right column
-    document.body.style.overflow = "hidden"; // Prevent scrolling on the body
+    document.body.style.overflow = "hidden";
     const rightColumn = document.querySelector(".column.is-half.is-fullheight");
-    rightColumn.style.overflowY = "auto"; // Allow scrolling only in the right column
+    rightColumn.style.overflowY = "auto";
 </script>
 
-<!-- Rest of your scripts (shareSession, Sortable, socket, Molstar viewer, etc.) -->
 <script>
     function shareSession() {
         const sessionId = "{{ session_id }}";
         const shareLink = `http://127.0.0.1:6969/retrieve-results?session_id=${sessionId}`;
-        navigator.clipboard.writeText(shareLink).then(() => {
-            alert("Share link copied to clipboard: " + shareLink);
-        }, (err) => {
-            console.error("Could not copy text: ", err);
-        });
-    }
-    
-    $(document).ready(function () {
-        var sortable = new Sortable(
-            document.getElementById("sortable-container"),
-            {
-                animation: 150,
-                ghostClass: "sortable-ghost",
-                handle: ".drag-handle",
-                onEnd: function (evt) {
-                    var itemEl = evt.item; // dragged HTMLElement
-                    // You can save the new order here by sending an AJAX request to your server
-                    // with the new order of elements.
-                },
+        navigator.clipboard.writeText(shareLink).then(
+            () => {
+                alert("Share link copied to clipboard: " + shareLink);
+            },
+            (err) => {
+                console.error("Could not copy text: ", err);
             },
         );
+    }
+
+    $(document).ready(function () {
+        new Sortable(document.getElementById("sortable-container"), {
+            animation: 150,
+            ghostClass: "sortable-ghost",
+            handle: ".drag-handle",
+            onEnd: function (evt) {
+                // Save the new order here by sending an AJAX request to your server
+            },
+        });
 
         $(document).on("click", ".expand-icon", function () {
             var $box = $(this).closest(".box");
             if ($box.hasClass("expanded")) {
                 $box.removeClass("expanded");
-                console.log("BAD");
             } else {
                 $(".box").removeClass("expanded");
                 $box.addClass("expanded");
-                console.log("GOOD");
             }
         });
     });
@@ -127,12 +262,12 @@
 
 <script>
     $(document).ready(function () {
-        var socket = io.connect(
+        const socket = io.connect(
             "http://" + document.domain + ":" + location.port,
         );
 
         $("#slider").on("input", function () {
-            var sliderValue = $(this).val();
+            const sliderValue = $(this).val();
             socket.emit("slider_value", { value: sliderValue });
         });
 
@@ -144,7 +279,7 @@
         });
 
         socket.on("cursor_update", function (data) {
-            var userCursor = document.getElementById(
+            let userCursor = document.getElementById(
                 "user-cursor-" + data.user_id,
             );
             if (!userCursor) {
@@ -171,7 +306,6 @@
     let isSpinning = false;
 
     document.addEventListener("DOMContentLoaded", function () {
-        // Initialize Molstar viewer
         molstar.Viewer.create("viewport", {
             emdbProvider: "rcsb",
             layoutShowLeftPanel: true,
@@ -186,18 +320,14 @@
             layoutIsExpanded: false,
         }).then((v) => {
             viewer = v;
-
-            // Load the initial structure and trajectory
-            const trajUrl = "{{ url_for('static', filename=session_id + '/' + traj_xtc) }}";
-            const pdbUrl = "{{ url_for('static', filename=session_id + '/' + native_pdb) }}";
+            const trajUrl =
+                "{{ url_for('static', filename=session_id + '/' + traj_xtc) }}";
+            const pdbUrl =
+                "{{ url_for('static', filename=session_id + '/' + native_pdb) }}";
 
             viewer
                 .loadTrajectory({
-                    model: {
-                        kind: "model-url",
-                        url: pdbUrl,
-                        format: "pdb",
-                    },
+                    model: { kind: "model-url", url: pdbUrl, format: "pdb" },
                     coordinates: {
                         kind: "coordinates-url",
                         url: trajUrl,
@@ -208,8 +338,6 @@
                 })
                 .then(() => {
                     console.log("Trajectory loaded successfully.");
-
-                    // Initialize slider
                     const frameSlider = document.getElementById("frame-slider");
                     const frameNumber = document.getElementById("frame-number");
 
@@ -230,16 +358,16 @@
                 });
         });
 
-        // Theme toggle
         const toggleTheme = document.getElementById("toggleTheme");
         toggleTheme.addEventListener("click", function () {
             viewer.setProps({
-                theme: isLight ? { global: { background: "black" } } : { global: { background: "white" } },
+                theme: isLight
+                    ? { global: { background: "black" } }
+                    : { global: { background: "white" } },
             });
             isLight = !isLight;
         });
 
-        // Spin toggle
         const toggleSpin = document.getElementById("toggleSpin");
         toggleSpin.addEventListener("click", function () {
             viewer.plugin.canvas3d?.setProps({
@@ -251,7 +379,6 @@
             isSpinning = !isSpinning;
         });
 
-        // Play/pause trajectory
         const toggleRunMDs = document.getElementById("toggleRunMDs");
         toggleRunMDs.addEventListener("click", function () {
             if (!isRunning) {
@@ -262,38 +389,6 @@
             isRunning = !isRunning;
         });
 
-        // Update frame function
-        function changeFrame(idx) {
-            if (!viewer) {
-                console.error("Viewer not initialized.");
-                return;
-            }
-
-            const plugin = viewer.plugin;
-            const state = plugin.state.data;
-
-            // Get the first model from the structure hierarchy
-            const models = plugin.managers.structure.hierarchy.current.models;
-            if (!models.length) {
-                console.error("No models found in the hierarchy.");
-                return;
-            }
-
-            let model = models[1].cell.transform.ref;
-            let update = state.build();
-
-            update.to(model).update({ modelIndex: idx });
-            update.commit();
-
-            try {
-                state.updateTree(update); // No .then() since this is synchronous
-                console.log(`Frame updated to ${idx}`);
-            } catch (err) {
-                console.error("Error updating frame:", err);
-            }
-        }
-
-        // Play/pause button
         const playPauseButton = document.getElementById("play-pause-button");
         playPauseButton.addEventListener("click", function () {
             if (!isRunning) {
@@ -305,30 +400,56 @@
             }
             isRunning = !isRunning;
         });
+
+        function changeFrame(idx) {
+            if (!viewer) {
+                console.error("Viewer not initialized.");
+                return;
+            }
+
+            const plugin = viewer.plugin;
+            const state = plugin.state.data;
+            const models = plugin.managers.structure.hierarchy.current.models;
+            if (!models.length) {
+                console.error("No models found in the hierarchy.");
+                return;
+            }
+
+            let model = models[1].cell.transform.ref;
+            let update = state.build();
+            update.to(model).update({ modelIndex: idx });
+            update.commit();
+
+            try {
+                state.updateTree(update);
+                console.log(`Frame updated to ${idx}`);
+            } catch (err) {
+                console.error("Error updating frame:", err);
+            }
+        }
     });
 </script>
+
 <style>
     @media screen and (max-width: 768px) {
         .section {
-            padding: 10px !important; /* Reduce padding around the section */
+            padding: 10px !important;
         }
-        
         .box {
-            margin: 5px !important; /* Reduce margin around the box */
-            padding: 10px !important; /* Reduce padding inside the box */
+            margin: 5px !important;
+            padding: 10px !important;
         }
-
         .content {
-            padding: 0 !important; /* Remove extra spacing if needed */
+            padding: 0 !important;
         }
     }
 
     .flex-container {
         display: flex;
-        align-items: center; /* Align items vertically in the center */
+        align-items: center;
     }
     .plot {
-        flex: 1; /* Allow the plot to take up available space */
+        flex: 1;
         align-self: center;
     }
     .torsion-image {
@@ -349,5 +470,4 @@
         overflow: auto;
     }
 </style>
-
 {% endblock %}

@@ -50,6 +50,7 @@ import threading
 
 app = Flask(__name__)
 app.secret_key = "pi"
+app.debug = True
 socketio = SocketIO(app, logger=True, engineio_logger=True, async_mode='eventlet')
 
 redis_conn = Redis()
@@ -80,6 +81,17 @@ def index():
     session["session_id"] = session_id
     return render_template("index.html", session_id=session_id)
 
+@app.route("/cgu")
+def cgu():
+    return render_template("cgu.html")
+
+@app.route("/authors")
+def authors():
+    return render_template("authors.html")
+
+@app.route("/documentation")
+def documentation():
+    return render_template("documentation.html")
 
 def list_files(directory):
     # Your implementation of listing files
