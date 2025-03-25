@@ -1,176 +1,44 @@
 {% extends 'layout.html' %} {% block content %}
-<section class="section" style="padding: 0 20px">
+<section class="section trajectory-viewer">
     <!-- Header Box -->
-    <div
-        id="header-box"
-        class="box"
-        style="
-            max-width: 90%;
-            margin: 20px auto;
-            padding: 24px;
-            display: flex;
-            flex-direction: row;
-            align-items: center;
-            justify-content: space-between;
-            border-radius: 12px;
-            box-shadow: 0 6px 12px rgba(0, 0, 0, 0.15);
-            background: #fff;
-            border: 1px solid #ddd;
-            transition: all 0.3s ease;
-        "
-    >
+    <div id="header-box" class="header-container">
         <!-- Title Box -->
-        <div style="flex: 1; text-align: left">
-            <h1
-                class="title"
-                style="font-size: 1.9em; color: #333; font-weight: 600"
-            >
-                Trajectory Viewer
-            </h1>
+        <div class="title-container">
+            <h1 class="title">Trajectory Viewer</h1>
         </div>
 
         <!-- Session ID Box -->
-        <div
-            style="
-                flex: 2;
-                display: flex;
-                justify-content: center;
-                align-items: center;
-                gap: 12px;
-                text-align: center;
-            "
-        >
-            <h3
-                class="title"
-                style="font-size: 1.2em; color: #666; font-weight: 500"
-            >
-                Session:
-                <span id="session-id" style="color: #007bff"
-                    >{{ session_id }}</span
-                >
+        <div class="session-info-container">
+            <h3 class="title">
+                Session: <span id="session-id">{{ session_id }}</span>
             </h3>
-            <p style="font-size: 1em; color: #444; max-width: 400px">
+            <p class="session-description">
                 The session ID uniquely identifies your trajectory visualization
                 session. You can share this link with others to allow them to
                 view your session.
             </p>
-            <button
-                onclick="shareSession()"
-                style="
-                    background: #007bff;
-                    color: white;
-                    padding: 8px 16px;
-                    border: none;
-                    border-radius: 8px;
-                    cursor: pointer;
-                    font-size: 1em;
-                    transition: background 0.2s;
-                "
-                onmouseover="this.style.background='#0056b3'"
-                onmouseout="this.style.background='#007bff'"
-            >
+            <button id="share-button" class="share-button">
                 Share Session
             </button>
         </div>
 
         <!-- Links Box -->
-        <div style="flex: 1; text-align: right">
-            <div style="display: flex; gap: 16px">
-                <a
-                    href="/cgu"
-                    style="
-                        color: #007bff;
-                        text-decoration: none;
-                        font-weight: 500;
-                    "
-                    >Terms & Conditions</a
-                >
-                <a
-                    href="/authors"
-                    style="
-                        color: #007bff;
-                        text-decoration: none;
-                        font-weight: 500;
-                    "
-                    >Authors</a
-                >
-                <a
-                    href="/help"
-                    style="
-                        color: #007bff;
-                        text-decoration: none;
-                        font-weight: 500;
-                    "
-                    >Help</a
-                >
-            </div>
+        <div class="links-container">
+            <a href="/cgu" class="nav-link">Terms & Conditions</a>
+            <a href="/authors" class="nav-link">Authors</a>
+            <a href="/help" class="nav-link">Help</a>
         </div>
     </div>
 
-    <script>
-        function shareSession() {
-            const sessionId = document.getElementById("session-id").innerText;
-            const url = window.location.origin + "/session/" + sessionId;
-            navigator.clipboard.writeText(url).then(() => {
-                alert("Session link copied to clipboard: " + url);
-            });
-        }
-    </script>
-
-    <div
-        class="columns is-multiline"
-        style="
-            display: flex;
-            height: calc(
-                100vh - 100px
-            ); /* Adjust height to account for the header */
-            margin-top: 20px; /* Add margin to align with the header */
-        "
-    >
+    <div class="main-content-container columns is-multiline">
         <!-- First Column: Viewer and Controls -->
-        <div
-            class="column is-half"
-            style="
-                display: flex;
-                flex-direction: column;
-                flex-grow: 1;
-                height: 100%;
-            "
-        >
-            <div
-                class="box"
-                style="
-                    position: sticky;
-                    z-index: 9;
-                    background: white;
-                    border-radius: 10px;
-                    padding: 10px;
-                    overflow: hidden;
-                    display: flex;
-                    flex-direction: column;
-                    height: calc(
-                        100% - 100px
-                    ); /* Adjust height to fill the column */
-                "
-            >
+        <div class="viewer-column column is-half">
+            <div class="viewer-container">
                 <!-- Viewer Section -->
-                <div
-                    id="viewport"
-                    style="
-                        width: 100%;
-                        flex-grow: 1;
-                        z-index: 1;
-                        border-radius: 8px;
-                        overflow: hidden;
-                        margin-bottom: 10px;
-                    "
-                ></div>
+                <div id="viewport" class="viewport"></div>
 
                 <!-- Player Controls -->
-                <div
-                    id="player-controls"
-                    class="field is-grouped is-grouped-centered"
-                >
+                <div id="player-controls" class="player-controls">
                     <input
                         type="range"
                         id="frame-slider"
@@ -178,8 +46,7 @@
                         max="{{ trajectory_length - 1 }}"
                         value="0"
                         step="1"
-                        class="slider is-fullwidth"
-                        style="width: 70%; z-index: 10"
+                        class="frame-slider"
                     />
                     <input
                         type="number"
@@ -188,38 +55,25 @@
                         max="{{ trajectory_length - 1 }}"
                         value="0"
                         step="1"
-                        class="input ml-2"
-                        style="width: 10%; z-index: 10"
+                        class="frame-input"
                     />
-                    <button
-                        id="play-pause-button"
-                        class="button is-primary ml-2"
-                        style="z-index: 10"
-                    >
+                    <button id="play-pause-button" class="control-button">
                         Play
                     </button>
                 </div>
 
                 <!-- Toggle Buttons -->
-                <div class="buttons is-centered mt-4">
-                    <button id="toggleSpin" class="button" style="z-index: 10">
+                <div class="control-buttons">
+                    <button id="toggleSpin" class="control-button">
                         Spin On/Off
                     </button>
-                    <button id="toggleTheme" class="button" style="z-index: 10">
+                    <button id="toggleTheme" class="control-button">
                         Light/Dark Background
                     </button>
-                    <button
-                        id="toggleRunMDs"
-                        class="button"
-                        style="z-index: 10"
-                    >
+                    <button id="toggleRunMDs" class="control-button">
                         Start/Stop MD
                     </button>
-                    <button
-                        id="toggleSideChains"
-                        class="button"
-                        style="z-index: 10"
-                    >
+                    <button id="toggleSideChains" class="control-button">
                         Show/Hide Sidechains
                     </button>
                 </div>
@@ -227,16 +81,8 @@
         </div>
 
         <!-- Second Column: Plots and Images -->
-        <div
-            class="column is-half"
-            style="
-                overflow-y: auto;
-                height: 100%;
-                display: flex;
-                flex-direction: column;
-            "
-        >
-            <div id="sortable-container" style="margin-top: 0">
+        <div class="plots-column column is-half">
+            <div id="sortable-container" class="plots-scrollable-container">
                 {% for plot_info in plot_data %} {% if plot_info[0] == "TORSION"
                 %} {% include '_plot_torsion.html' %} {% elif plot_info[0] ==
                 "BASE_PAIRING" %} {% include '_plot_2Dbasepairing.html' %} {%
@@ -254,251 +100,433 @@
 </section>
 
 <script>
-    // Fade out the header box on scroll
-    const headerBox = document.getElementById("header-box");
-    window.addEventListener("scroll", () => {
-        const scrollPosition = window.scrollY;
-        headerBox.style.opacity = scrollPosition > 50 ? "0" : "1";
+    // Configuration
+    const CONFIG = {
+        sessionId: "{{ session_id }}",
+        nativePdb: "{{ url_for('static', filename=session_id + '/' + native_pdb) }}",
+        nativeFormat: "{{ native_pdb.split('.')[-1] }}",
+        trajXtc: "{{ url_for('static', filename=session_id + '/' + traj_xtc) }}",
+        trajFormat: "{{ traj_xtc.split('.')[-1] }}",
+        maxFrame: {{ trajectory_length - 1 }},
+        baseUrl: window.location.origin
+    };
+
+    // State management
+    const state = {
+        viewer: null,
+        player: null,
+        isRunning: false,
+        isLight: false,
+        isSpinning: false,
+        viewerReady: false,
+        sideChainsVisible: false
+    };
+
+    // DOM Elements
+    const elements = {
+        headerBox: document.getElementById("header-box"),
+        sessionId: document.getElementById("session-id"),
+        shareButton: document.getElementById("share-button"),
+        viewport: document.getElementById("viewport"),
+        frameSlider: document.getElementById("frame-slider"),
+        frameNumber: document.getElementById("frame-number"),
+        playPauseButton: document.getElementById("play-pause-button"),
+        toggleSpin: document.getElementById("toggleSpin"),
+        toggleTheme: document.getElementById("toggleTheme"),
+        toggleRunMDs: document.getElementById("toggleRunMDs"),
+        toggleSideChains: document.getElementById("toggleSideChains"),
+        sortableContainer: document.getElementById("sortable-container")
+    };
+
+    // Initialize the application
+    document.addEventListener("DOMContentLoaded", function() {
+        initViewer();
+        setupEventListeners();
+        setupScrollBehavior();
     });
 
-    // Disable scrolling on the entire page except the right column
-    document.body.style.overflow = "hidden";
-    const rightColumn = document.querySelector(".column.is-half");
-    rightColumn.style.overflowY = "auto";
-</script>
+    // Initialize the molecular viewer
+    function initViewer() {
+        LouisMolStarWrapper.init("viewport").then(() => {
+            LouisMolStarWrapper.setBackground(0xffffff);
 
-<script>
+            return LouisMolStarWrapper.loadTrajectory({
+                model: {
+                    kind: "model-url",
+                    url: CONFIG.nativePdb,
+                    format: CONFIG.nativeFormat
+                },
+                coordinates: {
+                    kind: "coordinates-url",
+                    url: CONFIG.trajXtc,
+                    format: CONFIG.trajFormat,
+                    isBinary: true
+                },
+                preset: "default"
+            });
+        })
+        .then(() => {
+            state.viewerReady = true;
+            console.log("Trajectory loaded successfully");
+        })
+        .catch(error => {
+            console.error("Error loading trajectory:", error);
+        });
+    }
+
+    // Setup all event listeners
+    function setupEventListeners() {
+        // Frame controls
+        elements.frameSlider.addEventListener("input", handleFrameChange);
+        elements.frameNumber.addEventListener("input", handleFrameChange);
+
+        // Control buttons
+        elements.playPauseButton.addEventListener("click", togglePlayPause);
+        elements.toggleSpin.addEventListener("click", toggleSpin);
+        elements.toggleTheme.addEventListener("click", toggleTheme);
+        elements.toggleSideChains.addEventListener("click", toggleSideChains);
+        elements.toggleRunMDs.addEventListener("click", toggleRunMDs);
+
+        // Share button
+        elements.shareButton.addEventListener("click", shareSession);
+    }
+
+    // Handle frame changes
+    function handleFrameChange() {
+        if (!state.viewerReady) return;
+
+        const frame = parseInt(this.value);
+        elements.frameSlider.value = frame;
+        elements.frameNumber.value = frame;
+        LouisMolStarWrapper.interactivity.changeFrame(frame);
+    }
+
+    // Toggle play/pause
+    function togglePlayPause() {
+        if (!state.viewerReady) return;
+
+        if (!state.isRunning) {
+            state.player = LouisMolStarWrapper.plugin.managers.animation.play();
+            elements.playPauseButton.textContent = "Pause";
+        } else {
+            LouisMolStarWrapper.plugin.managers.animation.pause();
+            elements.playPauseButton.textContent = "Play";
+        }
+        state.isRunning = !state.isRunning;
+    }
+
+    // Toggle spin
+    function toggleSpin() {
+        LouisMolStarWrapper.toggleSpin();
+        state.isSpinning = !state.isSpinning;
+    }
+
+    // Toggle theme
+    function toggleTheme() {
+        const currentBg = state.isLight ? 0x000000 : 0xffffff;
+        LouisMolStarWrapper.setBackground(currentBg);
+        document.body.dataset.theme = currentBg === 0xffffff ? "light" : "dark";
+        state.isLight = !state.isLight;
+    }
+
+    // Toggle side chains
+    function toggleSideChains() {
+        if (state.sideChainsVisible) {
+            LouisMolStarWrapper.applyRepresentation("cartoon");
+        } else {
+            LouisMolStarWrapper.applyRepresentation("ball-and-stick");
+        }
+        state.sideChainsVisible = !state.sideChainsVisible;
+    }
+
+    // Toggle MD run
+    function toggleRunMDs() {
+        if (!state.isRunning) {
+            state.player = LouisMolStarWrapper.plugin.managers.animation.play();
+        } else {
+            LouisMolStarWrapper.plugin.managers.animation.pause();
+        }
+        state.isRunning = !state.isRunning;
+    }
+
+    // Share session
     function shareSession() {
-        const sessionId = "{{ session_id }}";
-        const shareLink = `http://127.0.0.1:6969/retrieve-results?session_id=${sessionId}`;
+        const shareLink = `${CONFIG.baseUrl}/retrieve-results?session_id=${CONFIG.sessionId}`;
         navigator.clipboard.writeText(shareLink).then(
             () => {
                 alert("Share link copied to clipboard: " + shareLink);
             },
             (err) => {
                 console.error("Could not copy text: ", err);
-            },
+            }
         );
     }
 
-    $(document).ready(function () {
-        new Sortable(document.getElementById("sortable-container"), {
-            animation: 150,
-            ghostClass: "sortable-ghost",
-            handle: ".drag-handle",
-            onEnd: function (evt) {
-                // Save the new order here by sending an AJAX request to your server
-            },
-        });
+    // Setup scroll behavior
+    function setupScrollBehavior() {
+            const mainContentContainer = document.querySelector('.main-content-container');
+            const plotsColumn = document.querySelector('.plots-column');
+            const plotsContainer = document.getElementById('sortable-container');
 
-        $(document).on("click", ".expand-icon", function () {
-            var $box = $(this).closest(".box");
-            if ($box.hasClass("expanded")) {
-                $box.removeClass("expanded");
-            } else {
-                $(".box").removeClass("expanded");
-                $box.addClass("expanded");
+            function adjustScrolling() {
+                // Keep body overflow hidden
+                document.body.style.overflow = 'hidden';
+
+                // Ensure plots column can scroll internally
+                plotsColumn.style.overflowY = 'auto';
+                plotsColumn.style.height = '100%';
+
+                // Ensure plots container can expand fully
+                plotsContainer.style.height = '100%';
+                plotsContainer.style.overflowY = 'auto';
             }
-        });
-    });
-</script>
 
-<script>
-    $(document).ready(function () {
-        const socket = io.connect(
-            "http://" + document.domain + ":" + location.port,
-        );
+            // Initial adjustment
+            adjustScrolling();
 
-        $("#slider").on("input", function () {
-            const sliderValue = $(this).val();
-            socket.emit("slider_value", { value: sliderValue });
-        });
+            // Adjust on window resize
+            window.addEventListener('resize', adjustScrolling);
 
-        socket.on("image_update", function (data) {
-            $("#dynamic-image").attr(
-                "src",
-                data.image_url + "?" + new Date().getTime(),
-            );
-        });
-
-        socket.on("cursor_update", function (data) {
-            let userCursor = document.getElementById(
-                "user-cursor-" + data.user_id,
-            );
-            if (!userCursor) {
-                userCursor = document.createElement("div");
-                userCursor.id = "user-cursor-" + data.user_id;
-                userCursor.style.position = "absolute";
-                userCursor.style.width = "10px";
-                userCursor.style.height = "10px";
-                userCursor.style.backgroundColor = data.color;
-                userCursor.style.borderRadius = "50%";
-                document.body.appendChild(userCursor);
-            }
-            userCursor.style.left = data.x + "px";
-            userCursor.style.top = data.y + "px";
-        });
-    });
-</script>
-
-<script>
-    let viewer;
-    let player;
-    let isRunning = false;
-    let isLight = false;
-    let isSpinning = false;
-
-    document.addEventListener("DOMContentLoaded", function () {
-        molstar.Viewer.create("viewport", {
-            emdbProvider: "rcsb",
-            layoutShowLeftPanel: true,
-            layoutShowRemoteState: false,
-            viewportShowAnimation: true,
-            pdbProvider: "rcsb",
-            layoutShowSequence: false,
-            viewportShowSelectionMode: false,
-            layoutShowLog: false,
-            viewportShowExpand: false,
-            layoutShowControls: false,
-            layoutIsExpanded: false,
-        }).then((v) => {
-            viewer = v;
-            const trajUrl =
-                "{{ url_for('static', filename=session_id + '/' + traj_xtc) }}";
-            const pdbUrl =
-                "{{ url_for('static', filename=session_id + '/' + native_pdb) }}";
-
-            viewer
-                .loadTrajectory({
-                    model: { kind: "model-url", url: pdbUrl, format: "pdb" },
-                    coordinates: {
-                        kind: "coordinates-url",
-                        url: trajUrl,
-                        format: "xtc",
-                        isBinary: true,
-                    },
-                    preset: "default",
-                })
-                .then(() => {
-                    console.log("Trajectory loaded successfully.");
-                    const frameSlider = document.getElementById("frame-slider");
-                    const frameNumber = document.getElementById("frame-number");
-
-                    frameSlider.addEventListener("input", function () {
-                        const frame = parseInt(frameSlider.value);
-                        frameNumber.value = frame;
-                        changeFrame(frame);
-                    });
-
-                    frameNumber.addEventListener("input", function () {
-                        const frame = parseInt(frameNumber.value);
-                        frameSlider.value = frame;
-                        changeFrame(frame);
-                    });
-                })
-                .catch((error) => {
-                    console.error("Error loading trajectory:", error);
-                });
-        });
-
-        const toggleTheme = document.getElementById("toggleTheme");
-        toggleTheme.addEventListener("click", function () {
-            viewer.setProps({
-                theme: isLight
-                    ? { global: { background: "black" } }
-                    : { global: { background: "white" } },
+            // Header opacity on scroll
+            window.addEventListener("scroll", () => {
+                const scrollPosition = window.scrollY;
+                const headerBox = document.getElementById("header-box");
+                headerBox.style.opacity = scrollPosition > 50 ? "0" : "1";
             });
-            isLight = !isLight;
-        });
-
-        const toggleSpin = document.getElementById("toggleSpin");
-        toggleSpin.addEventListener("click", function () {
-            viewer.plugin.canvas3d?.setProps({
-                trackball: {
-                    spin: isSpinning ? false : [0, 1, 0],
-                    spinSpeed: isSpinning ? 0 : 0.01,
-                },
-            });
-            isSpinning = !isSpinning;
-        });
-
-        const toggleRunMDs = document.getElementById("toggleRunMDs");
-        toggleRunMDs.addEventListener("click", function () {
-            if (!isRunning) {
-                player = viewer.plugin.managers.animation.play();
-            } else {
-                viewer.plugin.managers.animation.pause();
-            }
-            isRunning = !isRunning;
-        });
-
-        const playPauseButton = document.getElementById("play-pause-button");
-        playPauseButton.addEventListener("click", function () {
-            if (!isRunning) {
-                player = viewer.plugin.managers.animation.play();
-                playPauseButton.textContent = "Pause";
-            } else {
-                viewer.plugin.managers.animation.pause();
-                playPauseButton.textContent = "Play";
-            }
-            isRunning = !isRunning;
-        });
-
-        function changeFrame(idx) {
-            if (!viewer) {
-                console.error("Viewer not initialized.");
-                return;
-            }
-
-            const plugin = viewer.plugin;
-            const state = plugin.state.data;
-            const models = plugin.managers.structure.hierarchy.current.models;
-            if (!models.length) {
-                console.error("No models found in the hierarchy.");
-                return;
-            }
-
-            let model = models[1].cell.transform.ref;
-            let update = state.build();
-            update.to(model).update({ modelIndex: idx });
-            update.commit();
-
-            try {
-                state.updateTree(update);
-                console.log(`Frame updated to ${idx}`);
-            } catch (err) {
-                console.error("Error updating frame:", err);
-            }
         }
-    });
 </script>
 
 <style>
+    /* Base styles */
+
+    body {
+        overflow: hidden !important;
+    }
+
+    .trajectory-viewer {
+        padding: 0 10px;
+    }
+
+    /* Header styles */
+    .header-container {
+        max-width: 90%;
+        margin: 10px auto;
+        padding: 6px;
+        display: flex;
+        flex-direction: row;
+        align-items: center;
+        justify-content: space-between;
+        border-radius: 12px;
+        box-shadow: 0 6px 12px rgba(0, 0, 0, 0.15);
+        background: #fff;
+        border: 1px solid #ddd;
+        transition: all 0.3s ease;
+    }
+
+    .title-container {
+        flex: 1;
+        text-align: left;
+    }
+
+    .title {
+        font-size: 1.9em;
+        color: #333;
+        font-weight: 600;
+        margin: 0;
+    }
+
+    .session-info-container {
+        flex: 2;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        gap: 12px;
+        text-align: center;
+    }
+
+    .session-description {
+        font-size: 1em;
+        color: #444;
+        max-width: 400px;
+        margin: 0;
+    }
+
+    .share-button {
+        background: #007bff;
+        color: white;
+        padding: 8px 16px;
+        border: none;
+        border-radius: 8px;
+        cursor: pointer;
+        font-size: 1em;
+        transition: background 0.2s;
+    }
+
+    .share-button:hover {
+        background: #0056b3;
+    }
+
+    .links-container {
+        flex: 1;
+        text-align: right;
+        display: flex;
+        gap: 16px;
+    }
+
+    .nav-link {
+        color: #007bff;
+        text-decoration: none;
+        font-weight: 500;
+    }
+
+    /* Main content styles */
+    .main-content-container {
+        display: flex;
+        height: calc(100vh - 100px);
+        margin-top: 20px;
+    }
+
+    .viewer-column {
+        display: flex;
+        flex-direction: column;
+        flex-grow: 1;
+        height: 100%;
+    }
+
+    .viewer-container {
+        position: sticky;
+        z-index: 9;
+        background: white;
+        border-radius: 10px;
+        padding: 10px;
+        overflow: hidden;
+        display: flex;
+        flex-direction: column;
+        height: calc(100% - 100px);
+    }
+
+    .viewport {
+        width: 100%;
+        flex-grow: 1;
+        z-index: 1;
+        border-radius: 8px;
+        overflow: hidden;
+        margin-bottom: 10px;
+    }
+
+    .player-controls {
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        gap: 10px;
+        margin: 10px 0;
+    }
+
+    .frame-slider {
+        width: 70%;
+        z-index: 10;
+    }
+
+    .frame-input {
+        width: 60px;
+        z-index: 10;
+        text-align: center;
+    }
+
+    .control-buttons {
+        display: flex;
+        justify-content: center;
+        gap: 10px;
+        margin-top: 20px;
+        flex-wrap: wrap;
+    }
+
+    .control-button {
+        padding: 8px 16px;
+        border: 1px solid #ddd;
+        border-radius: 8px;
+        background: white;
+        cursor: pointer;
+        transition: all 0.2s;
+        z-index: 10;
+    }
+
+    .control-button:hover {
+        background: #f0f0f0;
+    }
+
+    .plots-column {
+        overflow-y: auto;
+        height: calc(100% + 400px);
+        display: flex;
+        flex-direction: column;
+    }
+
+    .plots-scrollable-container {
+        height: 100%;
+        overflow-y: auto;
+        padding-right: 10px; /* Add some padding to prevent scrollbar overlap */
+    }
+
+    /* Ensure last plot is fully visible */
+    .plots-scrollable-container > *:last-child {
+        margin-bottom: 100px; /* Add some bottom margin to the last plot */
+    }
+
+    .plots-scrollable-container {
+        padding-top: 0;
+        margin-top: 0;
+    }
+
+    .plots-scrollable-container > *:first-child {
+        margin-top: 0 !important;
+        padding-top: 0 !important;
+    }
+
+    /* Additional specificity to override potential default margins */
+    .plots-column > div > *:first-child {
+        margin-top: 0 !important;
+        padding-top: 0 !important;
+    }
+
+    /* Responsive styles */
     @media screen and (max-width: 768px) {
-        .section {
+        .trajectory-viewer {
             padding: 10px !important;
         }
-        .box {
+
+        .header-container {
+            flex-direction: column;
+            gap: 15px;
             margin: 5px !important;
-            padding: 10px !important;
+            padding: 15px !important;
         }
-        .content {
-            padding: 0 !important;
+
+        .title-container,
+        .session-info-container,
+        .links-container {
+            flex: none;
+            width: 100%;
+            text-align: center;
+        }
+
+        .main-content-container {
+            flex-direction: column;
+            height: auto;
+        }
+
+        .viewer-column,
+        .plots-column {
+            width: 100%;
+        }
+
+        .control-buttons {
+            flex-direction: column;
+            align-items: center;
         }
     }
 
-    .flex-container {
-        display: flex;
-        align-items: center;
-    }
-    .plot {
-        flex: 1;
-        align-self: center;
-    }
-    .torsion-image {
-        margin-left: 10px;
-        max-width: 1000px;
-    }
+    /* Expanded plot styles */
     .expanded {
         position: fixed;
         top: 10%;
