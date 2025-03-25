@@ -213,6 +213,9 @@ def retrieve_results():
 
     native_pdb_path = os.path.join(directory_path, native_pdb)
     traj_xtc_path = os.path.join(directory_path, traj_xtc)
+    print(f"Native PDB: {native_pdb_path}")
+    print(f"Trajectory XTC: {traj_xtc_path}")
+
     u = mda.Universe(native_pdb_path, traj_xtc_path)
 
     if not os.path.exists(pickle_file_path):
@@ -230,7 +233,7 @@ def retrieve_results():
         "view_trajectory.html",
         session_id=session_id,
         native_pdb=native_pdb,
-        traj_xtc=traj_xtc_path,
+        traj_xtc=traj_xtc,
         plot_data=plot_data,
         trajectory_length=len(u.trajectory),
         explainations=explanations
