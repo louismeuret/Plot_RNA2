@@ -1,6 +1,14 @@
 {% extends 'layout.html' %} {% block content %}
 <section class="section trajectory-viewer">
-    <!-- Header Box -->
+    <!-- Loading overlay -->
+    <div id="loading-overlay" class="loading-overlay">
+        <div class="loading-content">
+            <div class="loading-spinner"></div>
+            <p>Loading Trajectory Viewer...</p>
+        </div>
+    </div>
+
+    <!-- Header Box (loaded first) -->
     <div id="header-box" class="header-container">
         <!-- Title Box -->
         <div class="title-container">
@@ -9,9 +17,9 @@
 
         <!-- Session ID Box -->
         <div class="session-info-container">
-            <h3 class="title">
+            <h2 class="session">
                 Session: <span id="session-id">{{ session_id }}</span>
-            </h3>
+            </h2>
             <p class="session-description">
                 The session ID uniquely identifies your trajectory visualization
                 session. You can share this link with others to allow them to
@@ -30,12 +38,23 @@
         </div>
     </div>
 
-    <div class="main-content-container columns is-multiline">
+    <!-- Main Content (loaded after header) -->
+    <div
+        id="main-content-container"
+        class="main-content-container columns is-multiline"
+        style="display: none"
+    >
         <!-- First Column: Viewer and Controls -->
         <div class="viewer-column column is-half">
             <div class="viewer-container">
+                <!-- Loading state for viewer -->
+                <div id="viewer-loading" class="viewport-loading">
+                    <div class="loading-spinner"></div>
+                    <p>Loading 3D Viewer...</p>
+                </div>
+
                 <!-- Viewer Section -->
-                <div id="viewport" class="viewport"></div>
+                <div id="viewport" class="viewport" style="display: none"></div>
 
                 <!-- Player Controls -->
                 <div id="player-controls" class="player-controls">
@@ -47,6 +66,7 @@
                         value="0"
                         step="1"
                         class="frame-slider"
+                        disabled
                     />
                     <input
                         type="number"
@@ -56,24 +76,33 @@
                         value="0"
                         step="1"
                         class="frame-input"
+                        disabled
                     />
-                    <button id="play-pause-button" class="control-button">
+                    <button
+                        id="play-pause-button"
+                        class="control-button"
+                        disabled
+                    >
                         Play
                     </button>
                 </div>
 
                 <!-- Toggle Buttons -->
                 <div class="control-buttons">
-                    <button id="toggleSpin" class="control-button">
+                    <button id="toggleSpin" class="control-button" disabled>
                         Spin On/Off
                     </button>
-                    <button id="toggleTheme" class="control-button">
+                    <button id="toggleTheme" class="control-button" disabled>
                         Light/Dark Background
                     </button>
-                    <button id="toggleRunMDs" class="control-button">
+                    <button id="toggleRunMDs" class="control-button" disabled>
                         Start/Stop MD
                     </button>
-                    <button id="toggleSideChains" class="control-button">
+                    <button
+                        id="toggleSideChains"
+                        class="control-button"
+                        disabled
+                    >
                         Show/Hide Sidechains
                     </button>
                 </div>
@@ -82,7 +111,15 @@
 
         <!-- Second Column: Plots and Images -->
         <div class="plots-column column is-half">
-            <div id="sortable-container" class="plots-scrollable-container">
+            <div id="plots-loading" class="plots-loading">
+                <div class="loading-spinner"></div>
+                <p>Loading Analysis Plots...</p>
+            </div>
+            <div
+                id="sortable-container"
+                class="plots-scrollable-container"
+                style="display: none"
+            >
                 {% for plot_info in plot_data %} {% if plot_info[0] == "TORSION"
                 %} {% include '_plot_torsion.html' %} {% elif plot_info[0] ==
                 "BASE_PAIRING" %} {% include '_plot_2Dbasepairing.html' %} {%
@@ -119,30 +156,61 @@
         isLight: false,
         isSpinning: false,
         viewerReady: false,
-        sideChainsVisible: false
+        sideChainsVisible: false,
+        plotsLoaded: false
     };
 
     // DOM Elements
     const elements = {
+        loadingOverlay: document.getElementById("loading-overlay"),
         headerBox: document.getElementById("header-box"),
+        mainContentContainer: document.getElementById("main-content-container"),
         sessionId: document.getElementById("session-id"),
         shareButton: document.getElementById("share-button"),
         viewport: document.getElementById("viewport"),
+        viewerLoading: document.getElementById("viewer-loading"),
+        plotsLoading: document.getElementById("plots-loading"),
+        sortableContainer: document.getElementById("sortable-container"),
         frameSlider: document.getElementById("frame-slider"),
         frameNumber: document.getElementById("frame-number"),
         playPauseButton: document.getElementById("play-pause-button"),
         toggleSpin: document.getElementById("toggleSpin"),
         toggleTheme: document.getElementById("toggleTheme"),
         toggleRunMDs: document.getElementById("toggleRunMDs"),
-        toggleSideChains: document.getElementById("toggleSideChains"),
-        sortableContainer: document.getElementById("sortable-container")
+        toggleSideChains: document.getElementById("toggleSideChains")
     };
 
-    // Initialize the application
+    // Initialize the application with progressive loading
     document.addEventListener("DOMContentLoaded", function() {
+        // First show the header immediately
+        elements.headerBox.style.display = 'flex';
+
+        // Then show main content container
+        elements.mainContentContainer.style.display = 'flex';
+
+        // Start loading the viewer
         initViewer();
-        setupEventListeners();
-        setupScrollBehavior();
+
+        // Load plots after a short delay to prioritize the viewer
+        loadPlots();
+        new Sortable(document.getElementById("sortable-container"), {
+                    animation: 150,
+                    ghostClass: "sortable-ghost",
+                    handle: ".drag-handle",
+                    onEnd: function (evt) {
+                        // Save the new order here by sending an AJAX request to your server
+                    },
+                });
+
+                $(document).on("click", ".expand-icon", function () {
+                    var $box = $(this).closest(".box");
+                    if ($box.hasClass("expanded")) {
+                        $box.removeClass("expanded");
+                    } else {
+                        $(".box").removeClass("expanded");
+                        $box.addClass("expanded");
+                    }
+                });
     });
 
     // Initialize the molecular viewer
@@ -166,12 +234,53 @@
             });
         })
         .then(() => {
+            // Viewer is ready, show controls
             state.viewerReady = true;
+            elements.viewport.style.display = 'block';
+            elements.viewerLoading.style.display = 'none';
+
+            // Enable controls
+            enableControls();
+
             console.log("Trajectory loaded successfully");
+
+            // Hide loading overlay if plots are also loaded
+            if (state.plotsLoaded) {
+                elements.loadingOverlay.style.display = 'none';
+            }
         })
         .catch(error => {
             console.error("Error loading trajectory:", error);
+            elements.viewerLoading.innerHTML = '<p class="error-message">Failed to load 3D viewer. Please refresh the page.</p>';
         });
+    }
+
+    // Load plots
+    function loadPlots() {
+        // Simulate loading delay (in real implementation, this would be actual plot loading)
+
+            elements.sortableContainer.style.display = 'block';
+            elements.plotsLoading.style.display = 'none';
+            state.plotsLoaded = true;
+
+            // Hide loading overlay if viewer is also ready
+            if (state.viewerReady) {
+                elements.loadingOverlay.style.display = 'none';
+            }
+
+            // Initialize any plot interactivity here
+            initPlotInteractivity();
+    }
+
+    // Enable all controls once viewer is ready
+    function enableControls() {
+        elements.frameSlider.disabled = false;
+        elements.frameNumber.disabled = false;
+        elements.playPauseButton.disabled = false;
+        elements.toggleSpin.disabled = false;
+        elements.toggleTheme.disabled = false;
+        elements.toggleRunMDs.disabled = false;
+        elements.toggleSideChains.disabled = false;
     }
 
     // Setup all event listeners
@@ -189,6 +298,12 @@
 
         // Share button
         elements.shareButton.addEventListener("click", shareSession);
+    }
+
+    // Initialize plot interactivity
+    function initPlotInteractivity() {
+        // Add any plot-specific interactivity here
+        // For example, click handlers for plot expansion, etc.
     }
 
     // Handle frame changes
@@ -264,47 +379,108 @@
 
     // Setup scroll behavior
     function setupScrollBehavior() {
-            const mainContentContainer = document.querySelector('.main-content-container');
-            const plotsColumn = document.querySelector('.plots-column');
-            const plotsContainer = document.getElementById('sortable-container');
+        const mainContentContainer = document.querySelector('.main-content-container');
+        const plotsColumn = document.querySelector('.plots-column');
+        const plotsContainer = document.getElementById('sortable-container');
 
-            function adjustScrolling() {
-                // Keep body overflow hidden
-                document.body.style.overflow = 'hidden';
+        function adjustScrolling() {
+            // Keep body overflow hidden
+            document.body.style.overflow = 'hidden';
 
-                // Ensure plots column can scroll internally
-                plotsColumn.style.overflowY = 'auto';
-                plotsColumn.style.height = '100%';
+            // Ensure plots column can scroll internally
+            plotsColumn.style.overflowY = 'auto';
+            plotsColumn.style.height = '100%';
 
-                // Ensure plots container can expand fully
-                plotsContainer.style.height = '100%';
-                plotsContainer.style.overflowY = 'auto';
-            }
-
-            // Initial adjustment
-            adjustScrolling();
-
-            // Adjust on window resize
-            window.addEventListener('resize', adjustScrolling);
-
-            // Header opacity on scroll
-            window.addEventListener("scroll", () => {
-                const scrollPosition = window.scrollY;
-                const headerBox = document.getElementById("header-box");
-                headerBox.style.opacity = scrollPosition > 50 ? "0" : "1";
-            });
+            // Ensure plots container can expand fully
+            plotsContainer.style.height = '100%';
+            plotsContainer.style.overflowY = 'auto';
         }
+
+        // Initial adjustment
+        adjustScrolling();
+
+        // Adjust on window resize
+        window.addEventListener('resize', adjustScrolling);
+
+        // Header opacity on scroll
+        window.addEventListener("scroll", () => {
+            const scrollPosition = window.scrollY;
+            const headerBox = document.getElementById("header-box");
+            headerBox.style.opacity = scrollPosition > 50 ? "0" : "1";
+        });
+    }
+
+    // Setup event listeners after everything is loaded
+    window.addEventListener('load', function() {
+        setupEventListeners();
+        setupScrollBehavior();
+    });
 </script>
 
 <style>
     /* Base styles */
-
     body {
         overflow: hidden !important;
+        margin: 0;
+        padding: 0;
+        font-family: Arial, sans-serif;
     }
 
     .trajectory-viewer {
         padding: 0 10px;
+        position: relative;
+    }
+
+    /* Loading overlay styles */
+    .loading-overlay {
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background: rgba(255, 255, 255, 0.9);
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        z-index: 1000;
+    }
+
+    .loading-content {
+        text-align: center;
+    }
+
+    .loading-spinner {
+        border: 5px solid #f3f3f3;
+        border-top: 5px solid #3498db;
+        border-radius: 50%;
+        width: 50px;
+        height: 50px;
+        animation: spin 1s linear infinite;
+        margin: 0 auto 20px;
+    }
+
+    @keyframes spin {
+        0% {
+            transform: rotate(0deg);
+        }
+        100% {
+            transform: rotate(360deg);
+        }
+    }
+
+    .viewport-loading,
+    .plots-loading {
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        align-items: center;
+        height: 100%;
+        background: rgba(255, 255, 255, 0.8);
+    }
+
+    .error-message {
+        color: #d9534f;
+        font-weight: bold;
     }
 
     /* Header styles */
@@ -342,6 +518,13 @@
         align-items: center;
         gap: 12px;
         text-align: center;
+    }
+
+    .session {
+        font-size: 1.3em;
+        color: #333;
+        max-width: 400px;
+        margin: 0;
     }
 
     .session-description {
@@ -455,6 +638,11 @@
         background: #f0f0f0;
     }
 
+    .control-button:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+    }
+
     .plots-column {
         overflow-y: auto;
         height: calc(100% + 400px);
@@ -470,7 +658,7 @@
 
     /* Ensure last plot is fully visible */
     .plots-scrollable-container > *:last-child {
-        margin-bottom: 100px; /* Add some bottom margin to the last plot */
+        margin-bottom: 100px;
     }
 
     .plots-scrollable-container {
