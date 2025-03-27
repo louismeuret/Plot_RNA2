@@ -9,6 +9,7 @@ from flask import (
     url_for,
     session,
     send_file,
+    jsonify,
 )
 from werkzeug.utils import secure_filename
 import uuid
@@ -37,7 +38,6 @@ import numpy as np
 
 from FoldingAnalysis.analysis import *
 import plotly.graph_objects as go
-
 from string import ascii_uppercase
 import barnaba as bb
 import pickle
@@ -81,6 +81,18 @@ def index():
     session["session_id"] = session_id
     return render_template("index.html", session_id=session_id)
 
+@app.route("/get_session", methods=["GET"])
+def get_session():
+    session["session_id"] = uuid.uuid4().hex
+
+    session_id = session["session_id"]
+    session_path = os.path.join(app.static_folder, session_id)
+
+    # Check if the session_id exists as a directory in /static
+    session_exists = os.path.isdir(session_path)
+
+    return jsonify({"session_id": session_id, "exists": session_exists})
+
 @app.route("/cgu")
 def cgu():
     return render_template("cgu.html")
@@ -105,6 +117,8 @@ def plotly_to_json(fig):
 
 @app.route("/upload-files", methods=["POST"])
 def upload_files():
+    print(request.files)
+    print(request.form)
     if "nativePdb" not in request.files or "trajXtc" not in request.files:
         return redirect(request.url)
 
@@ -117,12 +131,17 @@ def upload_files():
     # Validate file extensions
     if not (native_pdb.filename.endswith('.pdb') and traj_xtc.filename.endswith('.xtc')):
         return "Invalid file type. Please upload a PDB and XTC file.", 400
+    print(request.form)
+    session_id = request.form.get("session_id")
+    if not session_id:
+        session_id = session.get("session_id")
 
-    session_id = session.get("session_id")
+    print(f"Session_id = {session_id}")
     os.makedirs(os.path.join(app.static_folder, session_id), exist_ok=True)
 
     native_pdb_path = os.path.join(app.static_folder, session_id, secure_filename(native_pdb.filename))
     traj_xtc_path = os.path.join(app.static_folder, session_id, secure_filename(traj_xtc.filename))
+    print(traj_xtc_path)
 
     try:
         native_pdb.save(native_pdb_path)
@@ -443,8 +462,10 @@ def view_trajectory(session_id, native_pdb, traj_xtc):
             socketio.emit('update_progress', {"progress": 80, "message": f"Error with {plot_type} plot."}, to=session_id)
 
     pickle_file_path = os.path.join(directory_path, "plot_data.pkl")
+    print(f"Dir Path = {directory_path}")
+    print(f"Completed Plot Data: {completed_plot_data}")  # Debugging line to check the data
     with open(pickle_file_path, "wb") as f:
-        pickle.dump(completed_plot_data, f)
+        pickle.dump(completed_plot_data, f, protocol=pickle.HIGHEST_PROTOCOL)
 
     socketio.emit('update_progress', {"progress": 100, "message": "Trajectory analysis complete."}, to=session_id)
 

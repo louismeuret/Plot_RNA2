@@ -10,7 +10,6 @@ import barnaba as bb
 from FoldingAnalysis.analysis import Trajectory
 import energy_3dplot
 from plotly.io import to_json
-import orjson
 
 # Configure Celery
 app2 = Celery('tasks')
@@ -28,8 +27,8 @@ app2.conf.update(
     result_expires=None
 )
 
-def plotly_to_json(fig):
-    return json.dumps(fig, cls=plotly.utils.PlotlyJSONEncoder)
+#def plotly_to_json(fig):
+#    return json.dumps(fig, cls=plotly.utils.PlotlyJSONEncoder)
 
 def plotly_to_json(fig):
     return to_json(fig, validate=False, engine="orjson")
