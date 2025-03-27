@@ -13,17 +13,30 @@ import MDAnalysis as mda
 import generate_contact_maps
 
 def plot_ermsd(ermsd):
-    fig = go.Figure(data=go.Scattergl(y=ermsd, mode="markers",legendrank=1))
-    fig.update_layout(
-        title="ERMSD Scatter Plot", xaxis_title="Frame", yaxis_title="ERMSD Value",     )
+    fig = go.Figure(
+        data=go.Scattergl(y=ermsd, mode="markers", legendrank=1),
+        layout=dict(
+            title="ERMSD Scatter Plot",
+            xaxis_title="Frame",
+            yaxis_title="ERMSD Value",
+            hovermode="closest"
+        )
+    )
+
     return fig
 
 
 def plot_rmsd(rmsd):
-    fig = go.Figure(data=go.Scattergl(y=rmsd, mode="markers", legendrank=1))
-    fig.update_layout(
-        title="RMSD Scatter Plot", xaxis_title="Frame", yaxis_title="RMSD Value",
+    fig = go.Figure(
+        data=go.Scattergl(y=rmsd, mode="markers", legendrank=1),
+        layout=dict(
+            title="RMSD Scatter Plot",
+            xaxis_title="Frame",
+            yaxis_title="RMSD Value",
+            hovermode="closest"
+        )
     )
+
     return fig
 
 

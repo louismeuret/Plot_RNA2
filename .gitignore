@@ -2,3 +2,5 @@
 static/
 
 backup.zip
+
+node_modules/

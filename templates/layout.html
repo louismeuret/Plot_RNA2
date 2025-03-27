@@ -17,6 +17,9 @@
             rel="stylesheet"
             href="https://cdn.jsdelivr.net/npm/molstar@4.8.0/build/viewer/molstar.min.css"
         />
+        <link
+            rel="stylesheet"
+            href="{{ url_for('static', filename='css/view_trajectory.css') }}"
 
         <script src="https://cdn.jsdelivr.net/npm/socket.io-client/dist/socket.io.min.js"></script>
         <script src="https://cdnjs.cloudflare.com/ajax/libs/Sortable/1.14.0/Sortable.min.js"></script>
@@ -63,6 +66,8 @@
             }
         </style>
         <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
+        <!--<script src="{{ url_for('static', filename='js/plotly-3.0.1.min.js') }}"></script>-->
+        <!--<script src="{{ url_for('static', filename='js/plotly.js') }}"></script> -->
         <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.5.1/jquery.min.js"></script>
         <!-- <script src="https://cdn.jsdelivr.net/npm/molstar@latest/build/viewer/molstar.min.js"></script> -->
         <script src="{{ url_for('static', filename='js/molstar.js') }}"></script>

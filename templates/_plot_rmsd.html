@@ -25,9 +25,9 @@
 
         // Initial plot with the main data
         Plotly.newPlot('{{ plot_info[1] }}', plotData_{{ plot_info[1] }}, {});
-        window.addEventListener('resize', function() {
-            Plotly.Plots.resize(document.getElementById('{{ plot_info[1] }}'));
-        });
+        // window.addEventListener('resize', function() {
+        //    Plotly.Plots.resize(document.getElementById('{{ plot_info[1] }}'));
+        //});
         document.getElementById('frame-slider').addEventListener('input', function() {
           var sliderValue = parseInt(this.value);
           console.log(sliderValue);
