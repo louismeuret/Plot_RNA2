@@ -12,7 +12,14 @@
     <div id="header-box" class="header-container">
         <!-- Title Box -->
         <div class="title-container">
-            <h1 class="title">Trajectory Viewer</h1>
+            <h1
+                class="title"
+                class="clickable-tile"
+                onclick="window.location.href = `${CONFIG.baseUrl}`"
+                ;
+            >
+                Trajectory Viewer
+            </h1>
         </div>
 
         <!-- Session ID Box -->
@@ -356,7 +363,9 @@
     function changeColor(number) {
         LouisMolStarWrapper.interactivity.highlightOn(number, 0xFF00FF);
     }
-
+    function hideColor() {
+        LouisMolStarWrapper.interactivity.highlightOff();
+    }
     // Toggle MD run
     function toggleRunMDs() {
         if (!state.isRunning) {

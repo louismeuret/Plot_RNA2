@@ -28,31 +28,34 @@
         window.addEventListener('resize', () => Plotly.Plots.resize(document.getElementById('{{ plot_info[1] }}')));
         $(document).on("click", ".expand-icon", () => Plotly.Plots.resize(document.getElementById('{{ plot_info[1] }}')));
         var currentPlot_{{ plot_info[1] }} = document.getElementById('{{ plot_info[1] }}');
-        document.addEventListener('DOMContentLoaded', function() {
-            changeColor(3);
 
-            // Ensure the plot reference is correct
-            let plotId = "currentPlot_{{ plot_info[1] }}"; // Ensure this is properly rendered by your template engine
-            let plotElement = document.getElementById(plotId);
-
-            if (plotElement) {
-                plotElement.on('plotly_click', function(data) {
-                    console.log(data);
+        currentPlot_{{ plot_info[1] }}.on('plotly_click', function(data) {
+            var checkViewerReady = setInterval(function() {
+                if (state.viewerReady === true) {
+                    clearInterval(checkViewerReady);
                     if (data.points.length > 0) {
-                        console.log(data.points[0].data.text);
-                        console.log(data.points[0].curveNumber);
+                        let curveNumber = data.points[0].curveNumber;
+                        let resid = parseInt(resids[curveNumber]);
 
-                        // Ensure resids is defined
-                        if (typeof resids !== 'undefined' && resids[data.points[0].curveNumber] !== undefined) {
-                            console.log(resids[data.points[0].curveNumber]);
+                        console.log(data.points[0].data.text);
+                        console.log(curveNumber);
+                        console.log(resid);
+
+                        if (state.highlightedResid === resid) {
+                            // If the clicked residue is already highlighted, remove the highlight
+                            hideColor();
+                            state.highlightedResid = undefined;
                         } else {
-                            console.warn("resids is undefined or missing data for the selected curve.");
+                            // If a different residue is selected, switch highlight
+                            if (state.highlightedResid !== undefined) {
+                              hideColor();
+                            }
+                            state.highlightedResid = resid;
+                            changeColor(resid);
                         }
                     }
-                });
-            } else {
-                console.error(`Plot element with ID '${plotId}' not found.`);
-            }
+                }
+            }, 100);
         });
     </script>
     <div
