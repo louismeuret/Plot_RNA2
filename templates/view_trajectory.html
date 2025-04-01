@@ -169,8 +169,8 @@
         plotsLoaded: false
     };
 
-    // DOM Elements
-    const elements = {
+    // DOM elements_doc
+    const elements_doc = {
         loadingOverlay: document.getElementById("loading-overlay"),
         headerBox: document.getElementById("header-box"),
         mainContentContainer: document.getElementById("main-content-container"),
@@ -192,10 +192,10 @@
     // Initialize the application with progressive loading
     document.addEventListener("DOMContentLoaded", function() {
         // First show the header immediately
-        elements.headerBox.style.display = 'flex';
+        elements_doc.headerBox.style.display = 'flex';
 
         // Then show main content container
-        elements.mainContentContainer.style.display = 'flex';
+        elements_doc.mainContentContainer.style.display = 'flex';
 
         // Start loading the viewer
         initViewer();
@@ -245,8 +245,8 @@
         .then(() => {
             // Viewer is ready, show controls
             state.viewerReady = true;
-            elements.viewport.style.display = 'block';
-            elements.viewerLoading.style.display = 'none';
+            elements_doc.viewport.style.display = 'block';
+            elements_doc.viewerLoading.style.display = 'none';
 
             // Enable controls
             enableControls();
@@ -256,24 +256,24 @@
 
             // Hide loading overlay if plots are also loaded
             if (state.plotsLoaded) {
-                elements.loadingOverlay.style.display = 'none';
+                elements_doc.loadingOverlay.style.display = 'none';
             }
         })
         .catch(error => {
             console.error("Error loading trajectory:", error);
-            elements.viewerLoading.innerHTML = '<p class="error-message">Failed to load 3D viewer. Please refresh the page.</p>';
+            elements_doc.viewerLoading.innerHTML = '<p class="error-message">Failed to load 3D viewer. Please refresh the page.</p>';
         });
     }
 
     // Load plots
     function loadPlots() {
-            elements.sortableContainer.style.display = 'block';
-            elements.plotsLoading.style.display = 'none';
+            elements_doc.sortableContainer.style.display = 'block';
+            elements_doc.plotsLoading.style.display = 'none';
             state.plotsLoaded = true;
 
             // Hide loading overlay if viewer is also ready
             if (state.viewerReady) {
-                elements.loadingOverlay.style.display = 'none';
+                elements_doc.loadingOverlay.style.display = 'none';
             }
 
             initPlotInteractivity();
@@ -281,30 +281,30 @@
 
     // Enable all controls once viewer is ready
     function enableControls() {
-        elements.frameSlider.disabled = false;
-        elements.frameNumber.disabled = false;
-        elements.playPauseButton.disabled = false;
-        elements.toggleSpin.disabled = false;
-        elements.toggleTheme.disabled = false;
-        elements.toggleRunMDs.disabled = false;
-        elements.toggleSideChains.disabled = false;
+        elements_doc.frameSlider.disabled = false;
+        elements_doc.frameNumber.disabled = false;
+        elements_doc.playPauseButton.disabled = false;
+        elements_doc.toggleSpin.disabled = false;
+        elements_doc.toggleTheme.disabled = false;
+        elements_doc.toggleRunMDs.disabled = false;
+        elements_doc.toggleSideChains.disabled = false;
     }
 
     // Setup all event listeners
     function setupEventListeners() {
         // Frame controls
-        elements.frameSlider.addEventListener("input", handleFrameChange);
-        elements.frameNumber.addEventListener("input", handleFrameChange);
+        elements_doc.frameSlider.addEventListener("input", handleFrameChange);
+        elements_doc.frameNumber.addEventListener("input", handleFrameChange);
 
         // Control buttons
-        elements.playPauseButton.addEventListener("click", togglePlayPause);
-        elements.toggleSpin.addEventListener("click", toggleSpin);
-        elements.toggleTheme.addEventListener("click", toggleTheme);
-        elements.toggleSideChains.addEventListener("click", toggleSideChains);
-        elements.toggleRunMDs.addEventListener("click", toggleRunMDs);
+        elements_doc.playPauseButton.addEventListener("click", togglePlayPause);
+        elements_doc.toggleSpin.addEventListener("click", toggleSpin);
+        elements_doc.toggleTheme.addEventListener("click", toggleTheme);
+        elements_doc.toggleSideChains.addEventListener("click", toggleSideChains);
+        elements_doc.toggleRunMDs.addEventListener("click", toggleRunMDs);
 
         // Share button
-        elements.shareButton.addEventListener("click", shareSession);
+        elements_doc.shareButton.addEventListener("click", shareSession);
     }
 
     // Initialize plot interactivity
@@ -318,8 +318,8 @@
         if (!state.viewerReady) return;
 
         const frame = parseInt(this.value);
-        elements.frameSlider.value = frame;
-        elements.frameNumber.value = frame;
+        elements_doc.frameSlider.value = frame;
+        elements_doc.frameNumber.value = frame;
         LouisMolStarWrapper.interactivity.changeFrame(frame);
     }
 
@@ -329,10 +329,10 @@
 
         if (!state.isRunning) {
             state.player = LouisMolStarWrapper.plugin.managers.animation.play();
-            elements.playPauseButton.textContent = "Pause";
+            elements_doc.playPauseButton.textContent = "Pause";
         } else {
             LouisMolStarWrapper.plugin.managers.animation.pause();
-            elements.playPauseButton.textContent = "Play";
+            elements_doc.playPauseButton.textContent = "Play";
         }
         state.isRunning = !state.isRunning;
     }

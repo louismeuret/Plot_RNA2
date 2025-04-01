@@ -11,6 +11,10 @@ import energy_3dplot
 from collections import defaultdict
 import MDAnalysis as mda
 import generate_contact_maps
+import logging
+
+# Configure logging
+logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
 
 def plot_ermsd(ermsd):
     fig = go.Figure(
@@ -22,9 +26,7 @@ def plot_ermsd(ermsd):
             hovermode="closest"
         )
     )
-
     return fig
-
 
 def plot_rmsd(rmsd):
     fig = go.Figure(
@@ -36,9 +38,7 @@ def plot_rmsd(rmsd):
             hovermode="closest"
         )
     )
-
     return fig
-
 
 def plot_dotbracket(dotbracket_data):
     reverse_mapping = {}
@@ -103,14 +103,11 @@ def plot_dotbracket(dotbracket_data):
     fig = go.Figure(data=traces, layout=layout)
     return fig
 
-
 def plot_torsion(angles, res, torsionResidue):
-
     if torsionResidue.isdigit():
         residue_index = int(torsionResidue)
     else:
         residue_index = res.index(torsionResidue)
-
 
     residue_index = 2
     specific_residue_angles = angles[:, residue_index, :]  # All frames for residue 2
@@ -183,7 +180,6 @@ def plot_torsion(angles, res, torsionResidue):
 
     return fig
 
-
 def plot_sec_structure(sec_structure):
     fig = go.Figure(data=go.Scattergl(y=sec_structure, mode="markers"))
     fig.update_layout(
@@ -192,7 +188,6 @@ def plot_sec_structure(sec_structure):
         yaxis_title="Secondary Structure",
     )
     return fig
-
 
 def plot_landscapes_3D(
     energy_matrix, Qbin, RMSDbin, max_RMSD, real_values, selected_regions
@@ -203,11 +198,10 @@ def plot_landscapes_3D(
     return fig
 
 def plot_diagram_frequency(sequence, dot_bracket_list, dotbracket_native):
-
     def parse_dot_bracket(dot_bracket):
         stack = []
         pairs = []
-        print(dot_bracket)
+        logging.debug(f"Parsing dot-bracket: {dot_bracket}")
 
         for i, char in enumerate(dot_bracket):
             if char == '(':
@@ -216,9 +210,7 @@ def plot_diagram_frequency(sequence, dot_bracket_list, dotbracket_native):
                 if stack:
                     pairs.append((stack.pop(), i))
 
-        print("PAIRS FOUND BY PARSER:")
-        print(pairs)
-
+        logging.debug(f"Pairs found by parser: {pairs}")
         return pairs
 
     # Function to calculate pair frequencies from a list of dot-bracket structures
@@ -233,9 +225,7 @@ def plot_diagram_frequency(sequence, dot_bracket_list, dotbracket_native):
                 total_pairs += 1
 
         pair_frequencies = {pair: count / total_pairs for pair, count in pair_counts.items()}
-        print("PAIR FREQUENCIES:")
-        print(pair_frequencies)
-
+        logging.debug(f"Pair frequencies: {pair_frequencies}")
         return pair_frequencies
 
     # Function to map nucleotide to color
@@ -250,8 +240,7 @@ def plot_diagram_frequency(sequence, dot_bracket_list, dotbracket_native):
 
     # Function to plot arc diagram
     def plot_arc_diagram(sequence, pair_frequencies, pairs):
-
-        print(pairs)
+        logging.debug(f"Pairs for arc diagram: {pairs}")
 
         fig = go.Figure()
 
@@ -330,16 +319,13 @@ def plot_diagram_frequency(sequence, dot_bracket_list, dotbracket_native):
         )
         return fig
 
-    print(dot_bracket_list)
+    logging.debug(f"Dot-bracket list: {dot_bracket_list}")
     # Calculate pair frequencies from the dot-bracket list
     pair_frequencies = calculate_pair_frequencies(dot_bracket_list)
-    print("FINAL PAIR FREQUENCIES:")
-    print(pair_frequencies)
-
+    logging.debug(f"Final pair frequencies: {pair_frequencies}")
 
     pairs = parse_dot_bracket(dotbracket_native[0])
-    print("PAIRS FOUND NATIVE")
-    print(pairs)
+    logging.debug(f"Pairs found in native structure: {pairs}")
     # Plot arc diagram
     fig = plot_arc_diagram(sequence, pair_frequencies, pairs)
     return fig
@@ -360,7 +346,7 @@ def base_pairs_visualisation(rr):
     x_edges = np.linspace(-1.1, 1.1, grid_size)
     y_edges = np.linspace(-1.1, 1.1, grid_size)
     heatmap, x_edges, y_edges = np.histogram2d(x, y, bins=[x_edges, y_edges])
-    #print(f"Size x and y = {len(x), len(y), x, y}")
+    logging.debug(f"Size x and y = {len(x), len(y), x, y}")
     if len(x) > 100000:
         max_threshold = np.percentile(heatmap, 98)  # Clip at the 98th percentile to highlight middle/high-density
         min_threshold = 5
@@ -394,7 +380,6 @@ def base_pairs_visualisation(rr):
             titlefont=dict(size=14, family="Arial, sans-serif")
         )
     ))
-
 
     # Add concentric circles and angular lines
     circle_radii = [0.5, 0.75, 1.0]
@@ -437,7 +422,6 @@ def base_pairs_visualisation(rr):
     pentagon_path = create_polygon_path(center=[-0.375, -0.225], radius=0.24, num_vertices=5, orientation=-0.08)
     fig.add_shape(type="path", path=pentagon_path, line_color="black")
 
-
     # Customize layout
     fig.update_layout(
         xaxis=dict(range=[-1.1, 1.1], title="x (nm)", zeroline=False),
@@ -449,13 +433,7 @@ def base_pairs_visualisation(rr):
 
     return fig
 
-
-
-
-
-
 def save_nth_frame(traj_file, top_file, index, session):
-
     # Load the trajectory and topology
     u = mda.Universe(top_file, traj_file)
 
