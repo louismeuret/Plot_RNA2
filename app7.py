@@ -68,6 +68,9 @@ def handle_connect():
         )
     print("Client connected")
 
+def create_session_id():
+    return uuid.uuid4().hex
+
 
 @app.route("/", methods=["GET", "POST"])
 def index():
@@ -354,6 +357,8 @@ def view_trajectory(session_id, native_pdb, traj_xtc):
     # Load the trajectory
     u = mda.Universe(native_pdb_path, traj_xtc_path)
     ref = mda.Universe(native_pdb_path)
+    residue_names = [residue.resname for residue in u.residues]
+    print(residue_names)
     print(len(u.select_atoms('nucleicbackbone').positions))
     print(len(ref.select_atoms('nucleicbackbone').positions))
     r_matrix = mda.analysis.align.rotation_matrix(u.select_atoms('nucleicbackbone').positions, ref.select_atoms('nucleicbackbone').positions)[0]

@@ -123,6 +123,7 @@
                 {% for plot_info in plot_data %} {% if plot_info[0] == "TORSION"
                 %} {% include '_plot_torsion.html' %} {% elif plot_info[0] ==
                 "BASE_PAIRING" %} {% include '_plot_2Dbasepairing.html' %} {%
+                elif plot_info[0] == "ARC" %} {% include '_plot_arc.html' %} {%
                 elif plot_info[0] == "LANDSCAPE_PLT" %} {% include
                 '_plot_landscape.html' %} {% elif plot_info[0] == "RMSD" %} {%
                 include '_plot_rmsd.html' %} {% elif plot_info[0] == "ERMSD" %}
@@ -138,6 +139,7 @@
 
 <script>
     // Configuration
+    var changeColor;
     const CONFIG = {
         sessionId: "{{ session_id }}",
         nativePdb: "{{ url_for('static', filename=session_id + '/' + native_pdb) }}",
@@ -241,6 +243,7 @@
 
             // Enable controls
             enableControls();
+            //changeColor(3);
 
             console.log("Trajectory loaded successfully");
 
@@ -257,8 +260,6 @@
 
     // Load plots
     function loadPlots() {
-        // Simulate loading delay (in real implementation, this would be actual plot loading)
-
             elements.sortableContainer.style.display = 'block';
             elements.plotsLoading.style.display = 'none';
             state.plotsLoaded = true;
@@ -268,7 +269,6 @@
                 elements.loadingOverlay.style.display = 'none';
             }
 
-            // Initialize any plot interactivity here
             initPlotInteractivity();
     }
 
@@ -353,6 +353,9 @@
         }
         state.sideChainsVisible = !state.sideChainsVisible;
     }
+    function changeColor(number) {
+        LouisMolStarWrapper.interactivity.highlightOn(number, 0xFF00FF);
+    }
 
     // Toggle MD run
     function toggleRunMDs() {
@@ -363,7 +366,6 @@
         }
         state.isRunning = !state.isRunning;
     }
-
     // Share session
     function shareSession() {
         const shareLink = `${CONFIG.baseUrl}/retrieve-results?session_id=${CONFIG.sessionId}`;
@@ -373,34 +375,36 @@
             },
             (err) => {
                 console.error("Could not copy text: ", err);
-            }
+            },
         );
     }
 
     // Setup scroll behavior
     function setupScrollBehavior() {
-        const mainContentContainer = document.querySelector('.main-content-container');
-        const plotsColumn = document.querySelector('.plots-column');
-        const plotsContainer = document.getElementById('sortable-container');
+        const mainContentContainer = document.querySelector(
+            ".main-content-container",
+        );
+        const plotsColumn = document.querySelector(".plots-column");
+        const plotsContainer = document.getElementById("sortable-container");
 
         function adjustScrolling() {
             // Keep body overflow hidden
-            document.body.style.overflow = 'hidden';
+            document.body.style.overflow = "hidden";
 
             // Ensure plots column can scroll internally
-            plotsColumn.style.overflowY = 'auto';
-            plotsColumn.style.height = '100%';
+            plotsColumn.style.overflowY = "auto";
+            plotsColumn.style.height = "100%";
 
             // Ensure plots container can expand fully
-            plotsContainer.style.height = '100%';
-            plotsContainer.style.overflowY = 'auto';
+            plotsContainer.style.height = "100%";
+            plotsContainer.style.overflowY = "auto";
         }
 
         // Initial adjustment
         adjustScrolling();
 
         // Adjust on window resize
-        window.addEventListener('resize', adjustScrolling);
+        window.addEventListener("resize", adjustScrolling);
 
         // Header opacity on scroll
         window.addEventListener("scroll", () => {
@@ -411,7 +415,7 @@
     }
 
     // Setup event listeners after everything is loaded
-    window.addEventListener('load', function() {
+    window.addEventListener("load", function () {
         setupEventListeners();
         setupScrollBehavior();
     });

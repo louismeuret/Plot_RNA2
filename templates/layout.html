@@ -70,15 +70,16 @@
         <!--<script src="{{ url_for('static', filename='js/plotly.js') }}"></script> -->
         <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.5.1/jquery.min.js"></script>
         <!-- <script src="https://cdn.jsdelivr.net/npm/molstar@latest/build/viewer/molstar.min.js"></script> -->
+        <!-- <script src=" https://cdn.jsdelivr.net/npm/lucide@0.486.0/dist/cjs/lucide.min.js "></script> -->
         <script src="{{ url_for('static', filename='js/molstar.js') }}"></script>
+
+
     </head>
 
     <body>
         <div class="container is-fluid is-fullheight">
             {% block content %} {% endblock %}
         </div>
-
-        <script src="https://unpkg.com/lucide@latest"></script>
         <script>
             lucide.createIcons();
         </script>

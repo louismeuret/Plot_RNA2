@@ -1,5 +1,6 @@
 from create_plots import *
 import json
+import orjson
 import kaleido
 import plotly
 import time
@@ -240,12 +241,16 @@ def generate_arc_plot(self, native_pdb_path, traj_xtc_path, download_path, plot_
         print(f"DOTBRACKET NATIVE = {str(dotbracket_native[0])}")
 
         sequence = ''.join([item[0] for item in res])
+        resids = [item.split("_")[1] for item in res]
+        resids_json = orjson.dumps(resids)
+        print(f"ARC SEQUENCE = {str(sequence)}")
         dotbracket_df = pd.DataFrame(dotbracket_data, columns=["DotBracket"])
         dotbracket_df.to_csv(os.path.join(download_path, "dotbracket_data.csv"), index=False)
         fig = plot_diagram_frequency(sequence, dotbracket_data, dotbracket_native)
+        print(f"ARC resids = {resids_json}")
         fig.write_html(os.path.join(plot_path, "arc_diagram_plot.html"))
         plotly_data = plotly_to_json(fig)
-        return plotly_data
+        return [plotly_data, resids]
     except Exception as exc:
         self.retry(exc=exc, countdown=60)
 
