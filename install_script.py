@@ -46,7 +46,7 @@ class Installer:
         self.is_linux = self.system == "linux"
 
         # Temp directory for downloads
-        self.temp_dir = Path(os.path.join(os.path.dirname(os.path.abspath(__file__)), "temp"))
+        self.temp_dir = Path.cwd() / "temp"
         self.temp_dir.mkdir(exist_ok=True)
 
         # Repository directory
@@ -409,3 +409,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
