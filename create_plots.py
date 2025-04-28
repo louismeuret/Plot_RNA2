@@ -180,6 +180,197 @@ def plot_torsion(angles, res, torsionResidue):
 
     return fig
 
+def plot_rna_contact_map(base_pairs_df, sequence, output_file=None, frame_number=None):
+    """
+    Create an interactive contact map visualization for RNA base pairs
+    using Plotly with Leontis-Westhof classification
+    
+    Parameters:
+    -----------
+    base_pairs_df : pandas DataFrame
+        DataFrame with base pair information
+    sequence : list
+        RNA sequence
+    output_file : str, optional
+        Path to save the HTML or image visualization
+    frame_number : int, optional
+        Frame number for multi-frame data
+    
+    Returns:
+    --------
+    fig : plotly.graph_objects.Figure
+        Plotly figure object
+    """
+    fig = go.Figure()
+    if base_pairs_df.empty:
+        print("No base pairs to display")
+        fig.add_annotation(
+            text="No base pairs to display",
+            xref="paper", yref="paper",
+            x=0.5, y=0.5,
+            showarrow=False,
+            font=dict(size=16, color="red")
+        )
+        # Update layout to center the text
+        fig.update_layout(
+            title="RNA Contact Map with Leontis-Westhof Base Pairs",
+            xaxis=dict(visible=False),
+            yaxis=dict(visible=False),
+            width=800,
+            height=700
+        )
+        return fig
+    
+    # Define a precise color mapping for each annotation
+    color_map = {
+        # Watson-Crick
+        'WCc': '#E41A1C',    # Red - canonical Watson-Crick
+        'WWc': '#E41A1C',    # Red - canonical Watson-Crick (alternative notation)
+        'GUc': '#FF7F00',    # Orange - G-U wobble pairs
+        
+        # Hoogsteen pairs
+        'WHc': '#4DAF4A',    # Green - Watson-Crick/Hoogsteen cis
+        'WHt': '#984EA3',    # Purple - Watson-Crick/Hoogsteen trans
+        'HWt': '#984EA3',    # Purple - Hoogsteen/Watson-Crick trans
+        'HWc': '#4DAF4A',    # Green - Hoogsteen/Watson-Crick cis
+        'HHc': '#A65628',    # Brown - Hoogsteen/Hoogsteen cis
+        'HHt': '#F781BF',    # Pink - Hoogsteen/Hoogsteen trans
+        
+        # Sugar edge
+        'WSc': '#377EB8',    # Blue - Watson-Crick/Sugar edge cis
+        'WSt': '#FFFF33',    # Yellow - Watson-Crick/Sugar edge trans
+        'SWc': '#377EB8',    # Blue - Sugar edge/Watson-Crick cis
+        'SWt': '#FFFF33',    # Yellow - Sugar edge/Watson-Crick trans
+        'SHc': '#66C2A5',    # Turquoise - Sugar edge/Hoogsteen cis
+        'SHt': '#8DA0CB',    # Light blue - Sugar edge/Hoogsteen trans
+        'HSc': '#66C2A5',    # Turquoise - Hoogsteen/Sugar edge cis
+        'HSt': '#8DA0CB',    # Light blue - Hoogsteen/Sugar edge trans
+        'SSc': '#FC8D62',    # Coral - Sugar edge/Sugar edge cis
+        'SSt': '#BEBADA',    # Lavender - Sugar edge/Sugar edge trans
+        
+        # Other
+        'XXX': '#C0C0C0',    # Silver - Not classified or undefined
+    }
+    
+    
+    # Group by annotation type
+    annotations = base_pairs_df['anno'].unique()
+    
+    # Add base-pairs as scatter points, grouped by annotation
+    for anno in annotations:
+        # Get subset of pairs with this annotation
+        subset = base_pairs_df[base_pairs_df['anno'] == anno]
+        
+        if not subset.empty:
+            # Determine marker symbol based on the annotation type
+            marker_symbol = 'circle'
+            
+            # For annotations in Leontis-Westhof notation, customize the marker
+            if anno != 'XXX' and len(anno) == 3:
+                # Different symbols based on interaction edges
+                if 'H' in anno:
+                    marker_symbol = 'diamond'
+                elif 'S' in anno:
+                    marker_symbol = 'square'
+                
+                # Make markers different for cis vs trans
+                if anno.endswith('t'):
+                    marker_symbol = 'star'
+            
+            # Get the color for this annotation type
+            color = color_map.get(anno, '#C0C0C0')
+            
+            # Add points for this interaction type
+            fig.add_trace(go.Scatter(
+                x=subset['res_i'],
+                y=subset['res_j'],
+                mode='markers',
+                marker=dict(
+                    size=8,
+                    symbol=marker_symbol,
+                    color=color,
+                    line=dict(width=1, color='DarkSlateGrey')
+                ),
+                name=anno,  # Use anno directly as the trace name
+                hovertemplate=(
+                    'Base pair: %{customdata[0]} ↔ %{customdata[1]}<br>' +
+                    'Type: ' + anno + '<br>' +
+                    'Residue i: %{x}<br>' +
+                    'Residue j: %{y}<br>'
+                ),
+                customdata=list(zip(subset['res_i_name'], subset['res_j_name']))
+            ))
+            
+            # Add points for the symmetrical pairs (lower triangle)
+            fig.add_trace(go.Scatter(
+                x=subset['res_j'],
+                y=subset['res_i'],
+                mode='markers',
+                marker=dict(
+                    size=8,
+                    symbol=marker_symbol,
+                    color=color,
+                    line=dict(width=1, color='DarkSlateGrey')
+                ),
+                name=f"{anno} (sym)",
+                showlegend=False,
+                hovertemplate=(
+                    'Base pair: %{customdata[1]} ↔ %{customdata[0]}<br>' +
+                    'Type: ' + anno + '<br>' +
+                    'Residue j: %{x}<br>' +
+                    'Residue i: %{y}<br>'
+                ),
+                customdata=list(zip(subset['res_i_name'], subset['res_j_name']))
+            ))
+    
+    # Add sequence ticks if sequence is available
+    n_residues = len(sequence)
+    tick_vals = list(range(1, n_residues + 1))
+    tick_text = [f"{seq}{i}" for i, seq in enumerate(sequence, 1)]
+    
+    # Add diagonal line
+    fig.add_trace(go.Scatter(
+        x=[1, n_residues],
+        y=[1, n_residues],
+        mode='lines',
+        line=dict(color='black', width=1, dash='dash'),
+        showlegend=False
+    ))
+    
+    # Update layout with better titles and hover info
+    title = "RNA Contact Map with Leontis-Westhof Base Pairs"
+    if frame_number is not None:
+        title += f" - Frame {frame_number}"
+        
+    fig.update_layout(
+        title=title,
+        xaxis=dict(
+            title="Nucleotide position",
+            tickvals=tick_vals,
+            ticktext=tick_text,
+            tickangle=45
+        ),
+        yaxis=dict(
+            title="Nucleotide position",
+            tickvals=tick_vals,
+            ticktext=tick_text
+        ),
+        width=800,
+        height=700,
+        legend_title="Base Pair Types:",
+        hovermode="closest"
+    )
+    
+    # Save to file if specified
+    if output_file:
+        if output_file.endswith('.html'):
+            fig.write_html(output_file)
+        else:
+            fig.write_image(output_file)
+        print(f"Contact map saved to {output_file}")
+    
+    return fig
+    
 def plot_sec_structure(sec_structure):
     fig = go.Figure(data=go.Scattergl(y=sec_structure, mode="markers"))
     fig.update_layout(
@@ -376,8 +567,6 @@ def base_pairs_visualisation(rr):
         ),
         colorbar=dict(
             title="Density",
-            titleside="right",
-            titlefont=dict(size=14, family="Arial, sans-serif")
         )
     ))
 

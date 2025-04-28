@@ -13,7 +13,7 @@
     />
     <script src="{{ url_for('static', filename='js/fornac.js') }}"></script>
     <div id="{{ plot_info[1] }}"></div>
-    <div id="rna_ss"></div>
+    <div id="rna_ss" style="height: 500px;"></div>
     <div class="content">
         <h2>{{ explainations.get(plot_info[0]).title }}</h2>
         <p>{{ explainations.get(plot_info[0]).content }}</p>

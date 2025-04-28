@@ -132,8 +132,10 @@ def upload_files():
         return redirect(request.url)
 
     # Validate file extensions
+    """
     if not (native_pdb.filename.endswith('.pdb') and traj_xtc.filename.endswith('.xtc')):
         return "Invalid file type. Please upload a PDB and XTC file.", 400
+    """
     print(request.form)
     session_id = request.form.get("session_id")
     if not session_id:
@@ -329,10 +331,12 @@ def view_trajectory(session_id, native_pdb, traj_xtc):
     directory_path = os.path.join(app.static_folder, session_id)
     download_path = os.path.join(directory_path, "download_data")
     download_plot = os.path.join(directory_path, "download_plot")
+    generate_data_path = os.path.join(directory_path, "generated_data")
 
     # Create directories if they don't exist
     os.makedirs(download_path, exist_ok=True)
     os.makedirs(download_plot, exist_ok=True)
+    os.makedirs(generate_data_path, exist_ok=True)
 
     with open(os.path.join(app.static_folder, 'explanations.json')) as f:
         explanations = json.load(f)
@@ -383,7 +387,6 @@ def view_trajectory(session_id, native_pdb, traj_xtc):
 
     socketio.emit('update_progress', {"progress": 40, "message": "Trajectory loaded."}, to=session_id)
     socketio.sleep(0.1)  # Ensure the message is sent
-
     plot_data = []
     for plot in selected_plots:
         files_path = os.path.join(download_path, plot)
@@ -416,7 +419,7 @@ def view_trajectory(session_id, native_pdb, traj_xtc):
             plot_data.append([plot, "arc", job.id])
 
         elif plot == "CONTACT_MAPS":
-            job = generate_contact_maps_plot.apply_async(args=[native_pdb_path, traj_xtc_path, files_path, plot_dir, session_id])
+            job = generate_contact_map_plot.apply_async(args=[native_pdb_path, traj_xtc_path, files_path, plot_dir, generate_data_path, session_id])
             plot_data.append([plot, "CONTACT_MAPS", job.id])
 
         elif plot == "ANNOTATE":
@@ -440,7 +443,7 @@ def view_trajectory(session_id, native_pdb, traj_xtc):
             plot_data.append([plot, "scatter", job.id])
 
         elif plot == "LANDSCAPE":
-            job = generate_landscape_plot.apply_async(args=[native_pdb_path, traj_xtc_path, files_path, plot_dir, session_id, session.get("landscape_stride", 1)])
+            job = generate_landscape_plot.apply_async(args=[native_pdb_path, traj_xtc_path, files_path, plot_dir, session_id, session.get("landscape_stride", 1), generate_data_path])
             plot_data.append([plot, "surface", job.id])
 
         elif plot == "BASE_PAIRING":
@@ -500,6 +503,22 @@ def read_biased(file_path):
     return df
 
 
+@socketio.on('update_frame_displayed')
+def seek_right_frame_landscape(data, second_arg):
+    #As for input coordinates on the energy landscape, and return the correspondin closest frame
+    print(f"Data received from update frame displayed: {data}")
+    session = data['session_id']
+    directory_path = os.path.join(app.static_folder, session)
+    generate_data_path = os.path.join(directory_path, "generated_data")
+    coordinates = {
+        'Q': float(data['value'][0]),  # Convert to float to ensure JSON serialization
+        'RMSD': float(data['value'][1])  # Convert to float to ensure JSON serialization
+    }
+    print(f"Coordinates received: Q={coordinates['Q']}, RMSD={coordinates['RMSD']}")
+    job = update_landscape_frame.apply_async(args=[generate_data_path, coordinates])
+    result = job.get()
+    print(result)
+    emit('update_frame_landscape_click', {'frame': int(result)}, room=session)  # Convert result to int for JSON serialization
 
 
 
@@ -516,6 +535,21 @@ def handle_slider_value(data):
     path_save_2 = 'contact_map_plotly.png'
 
     emit('image_update', {'image_url': path_save_2})
+
+@socketio.on('update_contact_map')
+def update_contact_map_to_right_frame(data, second_arg):
+    #print(second_arg)
+    print('Trying to update contact map')
+    session = data['session_id']
+    slider_value = int(data['value'])
+    directory_path = os.path.join(app.static_folder, session)
+    generate_data_path = os.path.join(directory_path, "generated_data")
+    download_plot = os.path.join(directory_path, "download_plot", "CONTACT_MAPS")
+    print(f"SESSION = {session}")
+    job = update_contact_map_plot.apply_async(args=[generate_data_path, download_plot, slider_value, session])
+    result = job.get()
+    emit('contact_map_plot_update', {'plotData': result}, room=session)
+
 
 def generate_image(value):
     # Create a simple image based on the slider value

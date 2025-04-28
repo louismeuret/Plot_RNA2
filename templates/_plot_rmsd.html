@@ -22,9 +22,21 @@
         var previousValue = 1;
         var dataLength = {{ trajectory_length }};
         var plotData_{{ plot_info[1] }} = {{ plot_info[2] | safe }};
-
+        var config = {
+          responsive: true,
+          autosize: true
+        };
+        
+        // Create layout options to better fit the container
+        var layout = {
+          margin: { t: 10, r: 10, l: 50, b: 50 },
+          autosize: true
+        };
         // Initial plot with the main data
-        Plotly.newPlot('{{ plot_info[1] }}', plotData_{{ plot_info[1] }}, {});
+        Plotly.newPlot('{{ plot_info[1] }}', plotData_{{ plot_info[1] }}, layout, config).then(() => {
+      // Force a resize after plot is created to ensure it fills the container
+        setTimeout(() => Plotly.Plots.resize(document.getElementById('{{ plot_info[1] }}')), 100);
+        });
         // window.addEventListener('resize', function() {
         //    Plotly.Plots.resize(document.getElementById('{{ plot_info[1] }}'));
         //});
@@ -36,7 +48,7 @@
             // Code to execute if the function is called for the first time
             var newMarkerTrace = {
               x: [sliderValue],
-              y: [plotData_{{ plot_info[1] }}.data[0].y[sliderValue]],
+              y: [plotData_{{ plot_info[1] }}.data[0].y._inputArray[sliderValue]],
               legendrank: 2,
               type: 'scattergl',
               mode: 'markers',
@@ -50,7 +62,7 @@
           } else {
             var update = {
               'x': [[sliderValue]],
-              'y': [[plotData_{{ plot_info[1] }}.data[0].y[sliderValue]]]
+              'y': [[plotData_{{ plot_info[1] }}.data[0].y._inputArray[sliderValue]]]
             };
             Plotly.restyle('{{ plot_info[1] }}', update, [1]); // Update the second trace (index 1)
           }

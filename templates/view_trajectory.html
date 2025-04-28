@@ -41,7 +41,7 @@
         <div class="links-container">
             <a href="/cgu" class="nav-link">Terms & Conditions</a>
             <a href="/authors" class="nav-link">Authors</a>
-            <a href="/help" class="nav-link">Help</a>
+            <a href="/documentation" class="nav-link">Help</a>
         </div>
     </div>
 
@@ -133,10 +133,11 @@
                 elif plot_info[0] == "ARC" %} {% include '_plot_arc.html' %} {%
                 elif plot_info[0] == "LANDSCAPE_PLT" %} {% include
                 '_plot_landscape.html' %} {% elif plot_info[0] == "RMSD" %} {%
-                include '_plot_rmsd.html' %} {% elif plot_info[0] == "ERMSD" %}
+                include '_plot_rmsd.html' %} {% elif plot_info[0] == "DOTBRACKET" %} {%
+                    include '_plot_dotbracket.html' %}{% elif plot_info[0] == "ERMSD" %}
                 {% include '_plot_ermsd.html' %} {% elif plot_info[0] ==
                 "SEC_STRUCTURE" %} {% include '_plot_secondary_structure.html'
-                %} {% elif plot_info[0] == "CONTACT_MAPS" %} {% include
+                %} {% elif plot_info[0] == "LANDSCAPE" %} {% include '_plot_3D_landscape.html'%}{% elif plot_info[0] == "CONTACT_MAPS" %} {% include
                 '_plot_contacts.html' %} {% else %} {% include
                 '_plot_default.html' %} {% endif %} {% endfor %}
             </div>

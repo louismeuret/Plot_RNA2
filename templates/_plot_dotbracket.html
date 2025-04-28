@@ -56,43 +56,7 @@
     document.querySelector(".expand-icon").addEventListener('click', () => {
       Plotly.Plots.resize(document.getElementById('{{ plot_info[1] }}'));
     });
-    
-    // Add event listeners for slider and input
-    document.getElementById('frame-slider').addEventListener('input', updateMarkerTrace);
-    document.getElementById('frame-number').addEventListener('input', updateMarkerTrace);
-    
-    function updateMarkerTrace(event) {
-      var sliderValue;
-      if (event.target.id === 'frame-slider') {
-        sliderValue = parseInt(document.getElementById('frame-slider').value);
-      } else {
-        sliderValue = parseInt(document.getElementById('frame-number').value);
-      }
-      
-      if (!updateMarkerTrace.hasExecuted) {
-        // Code to execute if the function is called for the first time
-        var newMarkerTrace = {
-          x: [sliderValue],
-          y: [plotData_{{ plot_info[1] }}.data[0].y._inputArray[sliderValue]],
-          legendrank: 2,
-          type: 'scattergl',
-          mode: 'markers',
-          marker: {
-            color: 'red',
-            size: 12
-          },
-          name: 'Frame Marker'
-        };
-        Plotly.addTraces('{{ plot_info[1] }}', newMarkerTrace);
-        updateMarkerTrace.hasExecuted = true;
-      } else {
-        var update = {
-          'x': [[sliderValue]],
-          'y': [[plotData_{{ plot_info[1] }}.data[0].y._inputArray[sliderValue]]]
-        };
-        Plotly.restyle('{{ plot_info[1] }}', update, [1]); // Update the second trace (index 1)
-      }
-    }
+
   </script>
   <div
     style="

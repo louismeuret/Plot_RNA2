@@ -124,13 +124,14 @@ def energy_plot(matrix_energy_rescaled, bin_size_Q, bin_size_RMSD, maximal_RMSD,
 	from string import ascii_uppercase
 	labels=dict(zip(squares,[ascii_uppercase[i] for i in range(len(squares))]))
 	#plan graph...
-	ax.set_aspect('equal')
+	#ax.set_aspect('equal')
+	ax.set_aspect(0.25)
 	ax.set_xlim([0, 1])
-	ax.set_ylim([0, maximal_RMSD])
-	ax.autoscale(enable=True, axis='y',tight=True)
+	ax.set_ylim([0, 4])
+	#ax.autoscale(enable=True, axis='y',tight=True)
 	xlocs, xticks=plt.xticks(np.arange(0, 1.1, 0.1), rotation=90)
 	xticks[0].set_visible(False)
-	ylocs, yticks=plt.yticks(np.arange(0, maximal_RMSD, 0.1))
+	ylocs, yticks=plt.yticks(np.arange(0, 4, 0.1))
 	yticks[0].set_visible(False)
 	plt.tick_params (axis = "both", which = "both", bottom = True, top = False, left=True, right=False)
 	plt.xlabel('Q (Froebenius distance)', fontsize=14)
@@ -139,7 +140,7 @@ def energy_plot(matrix_energy_rescaled, bin_size_Q, bin_size_RMSD, maximal_RMSD,
 	#cmap = plt.cm.get_cmap('RdYlBu') #grab standard colormap
 	cmap=custom_cmap.reversed() #inverts color range to get blue for lower energy as convention!!
 	cmap.set_over('white') #needed to set all values above threshold=unreal values to white
-	p=plt.imshow(matrix_energy_rescaled.T, origin='lower', extent=[0,1,0.01,maximal_RMSD], interpolation='gaussian', aspect=float(bin_size_Q/bin_size_RMSD), cmap=cmap, vmax=np.amax(real_values)) #set aspect to ratio of x unity/y unity to get square plot
+	p=plt.imshow(matrix_energy_rescaled.T, origin='lower', extent=[0,1,0.01,maximal_RMSD], interpolation='gaussian', aspect=0.25, cmap=cmap, vmax=np.amax(real_values)) #set aspect to ratio of x unity/y unity to get square plot
 	#cbar=plt.colorbar(p, ax=ax, ticks=np.arange(np.amin(matrix_energy_rescaled.T), np.amax(real_values), 1.0), shrink=0.82)
 	cbar=plt.colorbar(p, ax=ax, ticks=np.arange(1, np.amax(real_values), 1.0), shrink=0.805)
 	plt.clim(2.5, np.amax(real_values)) #sets range for colorbar

@@ -6,23 +6,29 @@ import zipfile
 import io
 import argparse
 from urllib.parse import urljoin
+import warnings
 
 class RNATrajectoryAnalysis:
     """
     Client for interacting with the RNA trajectory analysis web service.
     """
 
-    def __init__(self, base_url="http://localhost:5000"):
+    def __init__(self, base_url="http://localhost:5000", verify_ssl=True):
         """
         Initialize the RNA trajectory analysis client.
 
         Args:
             base_url (str): The base URL of the RNA trajectory analysis service
+            verify_ssl (bool): Whether to verify SSL certificates
         """
         self.base_url = base_url
+        self.verify_ssl = verify_ssl
         self.session_id = None
         self.native_pdb = None
         self.traj_xtc = None
+        
+        if not verify_ssl:
+            warnings.warn("SSL verification is disabled. This is not recommended for production use.")
 
     def start_session(self):
         """
@@ -31,12 +37,12 @@ class RNATrajectoryAnalysis:
         Returns:
             str: The session ID for the new session
         """
-        response = requests.get(urljoin(self.base_url, "/get_session"))
+        response = requests.get(urljoin(self.base_url, "/get_session"), verify=self.verify_ssl)
         # Extract session ID from JSON response
         session_id = response.json().get("session_id")
         if not session_id:
             # Alternative approach - make a POST request to get a session ID
-            response = requests.post(urljoin(self.base_url, "/"))
+            response = requests.post(urljoin(self.base_url, "/"), verify=self.verify_ssl)
             session_id = response.cookies.get("session")
 
         self.session_id = session_id
@@ -95,7 +101,8 @@ class RNATrajectoryAnalysis:
             response = requests.post(
                 urljoin(self.base_url, "/upload-files"),
                 files=files,
-                data=form_data
+                data=form_data,
+                verify=self.verify_ssl
             )
 
             # Print detailed response information for debugging
@@ -141,7 +148,7 @@ class RNATrajectoryAnalysis:
         # Then poll for results
         for attempt in range(max_retries):
             try:
-                response = requests.get(results_url)
+                response = requests.get(results_url, verify=self.verify_ssl)
 
                 if response.status_code == 200:
                     # Successful result
@@ -185,7 +192,7 @@ class RNATrajectoryAnalysis:
         )
 
         try:
-            response = requests.get(download_url)
+            response = requests.get(download_url, verify=self.verify_ssl)
 
             if response.status_code == 200:
                 filename = plot_id + "_data.zip"
@@ -232,7 +239,7 @@ class RNATrajectoryAnalysis:
         )
 
         try:
-            response = requests.get(download_url)
+            response = requests.get(download_url, verify=self.verify_ssl)
 
             if response.status_code == 200:
                 filename = plot_id + "_plots.zip"
@@ -331,12 +338,7 @@ def main():
     parser = argparse.ArgumentParser(description='RNA Trajectory Analysis Tool')
     parser.add_argument('trajectory', help='Path to the trajectory XTC file')
     parser.add_argument('topology', help='Path to the topology PDB file')
-    parser.add_argument('--analyses', nargs='+', default=['RMSD', 'ERMSD'],
-                       choices=['RMSD', 'ERMSD', 'CONTACT_MAPS', 'TORSION',
-                                'SEC_STRUCTURE', 'DOTBRACKET', 'ARC', 'ANNOTATE',
-                                'DS_MOTIF', 'SS_MOTIF', 'JCOUPLING', 'ESCORE',
-                                'LANDSCAPE', 'BASE_PAIRING'],
-                       help='List of analyses to perform')
+    parser.add_argument('--analyses', nargs='+', default=['RMSD', 'ERMSD'],choices=['RMSD', 'ERMSD', 'CONTACT_MAPS', 'SEC_STUCTURE', 'DOTBRACKET', 'ARC', 'LANDSCAPE', 'BASE_PAIRING', 'ALL'],help='List of analyses to run (or "ALL" to run everything)')
     parser.add_argument('--n_frames', type=int, default=1,
                        help='Number of frames to analyze')
     parser.add_argument('--first_frame', type=int, default=0,
@@ -347,8 +349,18 @@ def main():
                        help='Stride for frame selection')
     parser.add_argument('--server', default='http://localhost:6969',
                        help='Server URL for the analysis service')
+    parser.add_argument('--no-verify-ssl', action='store_true',
+                    help='Disable SSL certificate verification (not recommended for production)')
+
 
     args = parser.parse_args()
+    
+    all_analyses = ['RMSD', 'ERMSD', 'CONTACT_MAPS',
+                'SEC_STRUCTURE', 'DOTBRACKET', 'ARC',
+                'LANDSCAPE', 'BASE_PAIRING']
+
+    if 'ALL' in args.analyses:
+        args.analyses = all_analyses
 
     # Create frame options dictionary
     frame_options = {
@@ -359,7 +371,7 @@ def main():
     }
 
     # Initialize the client
-    client = RNATrajectoryAnalysis(base_url=args.server)
+    client = RNATrajectoryAnalysis(base_url=args.server, verify_ssl=not args.no_verify_ssl)
 
     # Upload files and start analysis
     print("Uploading files and starting analysis...")

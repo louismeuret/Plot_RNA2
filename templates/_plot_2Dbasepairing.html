@@ -5,28 +5,26 @@
         <i class="expand-icon" data-lucide="expand"></i>
     </div>
     <div id="{{ plot_info[1] }}"></div>
-    <h2>{{ explainations.get(plot_info[0]).title }}</h2>
-    <p>{{ explainations.get(plot_info[0]).content }}</p>
-    {% if explainations.get(plot_info[0]).formula != "" %}
-    <div class="formula">
-        {{ explainations.get(plot_info[0]).formula | safe }}
+    <div class="content">
+        <h2>{{ explainations.get(plot_info[0]).title }}</h2>
+        <p>{{ explainations.get(plot_info[0]).content }}</p>
+        {% if explainations.get(plot_info[0]).formula != "" %}
+        <div class="formula">
+            {{ explainations.get(plot_info[0]).formula | safe }}
+        </div>
+        {% endif %}
     </div>
-    {% endif %}
     <script>
-        var plotData = {{ plot_info[2] | safe }};
-        Plotly.newPlot('{{ plot_info[1] }}', plotData, {});
+        var plotData_{{ plot_info[1] }} = {{ plot_info[2] | safe }};
+        Plotly.newPlot('{{ plot_info[1] }}', plotData_{{ plot_info[1] }}, layout, config).then(() => {
+      // Force a resize after plot is created to ensure it fills the container
+      setTimeout(() => Plotly.Plots.resize(document.getElementById('{{ plot_info[1] }}')), 100);
+    });
         window.addEventListener('resize', function() {
             Plotly.Plots.resize(document.getElementById('{{ plot_info[1] }}'));
         });
-    </script>
-    <a
-        href="{{ url_for('download_plot', plot_id=plot_info[0], session_id=session_id) }}"
-        class="button is-link"
-        >Download Plot</a
-    >
-</div>
 
-<script>
+
     $(document).ready(function () {
         $(".expand-icon").on("click", function () {
             Plotly.Plots.resize(document.getElementById("{{ plot_info[1] }}"));
@@ -46,4 +44,19 @@
             Plotly.Plots.resize(plotDataContainer[0]);
         });
     });
-</script>
+
+    </script>
+  <div
+  style="
+  display: flex;
+  justify-content: center;
+  gap: 10px;
+  margin-top: 10px;
+  "
+>
+  <a
+    href="{{ url_for('download_plot', plot_id=plot_info[0], session_id=session_id) }}"
+    class="button is-link"
+  >Download Plot</a>
+</div>
+</div>

@@ -20,7 +20,7 @@
         <link
             rel="stylesheet"
             href="{{ url_for('static', filename='css/view_trajectory.css') }}"
-
+        />
         <script src="https://cdn.jsdelivr.net/npm/socket.io-client/dist/socket.io.min.js"></script>
         <script src="https://cdnjs.cloudflare.com/ajax/libs/Sortable/1.14.0/Sortable.min.js"></script>
 
@@ -65,7 +65,10 @@
                 z-index: 2;
             }
         </style>
-        <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
+        <!--<script src="https://cdn.plot.ly/plotly-latest.min.js"></script>-->
+        <!--<script src="https://cdn.plot.ly/plotly-3.0.1.min.js" charset="utf-8"></script>-->
+        <script src="https://cdnjs.cloudflare.com/ajax/libs/plotly.js/2.35.3/plotly.min.js" integrity="sha512-7H/XbvOmUsf6mawBvmmx9BsPt9ew2NTwQ3QDSzNe6iyacDbCJU+7pBbZY1NdmTpuj7snxSsXasMYMiR2tv906g==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+        <!--<script src="https://cdnjs.cloudflare.com/ajax/libs/plotly.js/1.33.1/plotly.min.js" integrity="sha512-V0j9LhrK9IMNdFYZqh+IqU4cjo7wdxyHNyH+L0td4HryBuZ7Oq6QxP2/CWr6TituX31+gv5PnolvERuTbz8UNA==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>-->
         <!--<script src="{{ url_for('static', filename='js/plotly-3.0.1.min.js') }}"></script>-->
         <!--<script src="{{ url_for('static', filename='js/plotly.js') }}"></script> -->
         <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.5.1/jquery.min.js"></script>

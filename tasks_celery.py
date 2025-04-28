@@ -1,16 +1,18 @@
 from create_plots import *
 import json
 import orjson
-import kaleido
-import plotly
 import time
 from celery import Celery
 import os
 import pandas as pd
 import barnaba as bb
 from FoldingAnalysis.analysis import Trajectory
+import numpy as np
+import mdtraj as md
+from itertools import combinations
 import energy_3dplot
 from plotly.io import to_json
+import pickle
 
 # Configure Celery
 app2 = Celery('tasks')
@@ -33,10 +35,6 @@ app2.conf.update(
 
 def plotly_to_json(fig):
     return to_json(fig, validate=False, engine="orjson")
-
-import numpy as np
-import mdtraj as md
-from itertools import combinations
 
 def best_hummer_q(traj, native):
     """Compute the fraction of native contacts according the definition from
@@ -278,16 +276,136 @@ def generate_escore_plot(self, traj_xtc_path, native_pdb_path, download_path, pl
     pass
 
 @app2.task(bind=True, max_retries=3)
-def generate_landscape_plot(self, native_pdb_path,traj_xtc_path, download_path, plot_path, session_id, landscape_stride):
+def update_contact_map_plot(self, generate_data_path, plot_path,  frame_number, session_id):
+    
+    with open(os.path.join(generate_data_path, "contact_map_data.pkl"), 'rb') as f:
+        loaded_data = pickle.load(f)
+    
+    frames_dict = loaded_data['frames_dict']
+    sequence = loaded_data['sequence']
+    
+    frame_num, frame_data = sorted(frames_dict.items())[frame_number]
+    print(f"EXPECTED DIRECTORY TO SAVE PLOTS = {os.path.join(plot_path, 'contact_map.html')}")
+    fig = plot_rna_contact_map(frame_data, sequence, output_file=os.path.join(plot_path, "contact_map.html"), frame_number=frame_num)
+    plotly_data = plotly_to_json(fig)
+    return plotly_data
+    
+
+@app2.task(bind=True, max_retries=3)
+def update_landscape_frame(self, generate_data_path, coordinates):
+    with open(os.path.join(generate_data_path, "dataframe.pkl"), 'rb') as f:
+        loaded_data = pickle.load(f)
+    df = loaded_data
+    target_Q = coordinates['Q']
+    target_RMSD = coordinates['RMSD']
+    
+    # Calculate Euclidean distance between target coordinates and all points
+    distances = np.sqrt((df['Q'] - target_Q)**2 + (df['RMSD'] - target_RMSD)**2)
+    closest_frame_idx = distances.idxmin()
+    closest_frame = int(df.iloc[closest_frame_idx]['frame'])  # Convert to Python int
+    return closest_frame
+    
+
+
+@app2.task(bind=True, max_retries=3)
+def generate_contact_map_plot(self, native_pdb_path, traj_xtc_path, download_path, plot_path, generate_data_path, session_id):
+    def process_barnaba_pairings(pairings, res):
+        """
+        Process barnaba pairings and residue information into frames dictionary
+
+        Parameters:
+        -----------
+        pairings : list
+            List of pairs for each frame from barnaba.annotate
+        res : list
+            List of residue information
+
+        Returns:
+        --------
+        frames_dict : dict
+            Dictionary with frame numbers as keys and DataFrames with base pair information as values
+        sequence : list
+            RNA sequence
+        """
+        frames_dict = {}
+
+        # Create sequence from residue information
+        sequence = [r[0] for r in res]  # Assuming res contains nucleotide types
+
+        # Process each frame
+        for frame_num, frame_data in enumerate(pairings):
+            base_pairs = []
+
+            # Each frame contains a list of pairs and their annotations
+            if len(frame_data) == 2:
+                pair_indices = frame_data[0]
+                annotations = frame_data[1]
+
+                for pair_idx, pair in enumerate(pair_indices):
+                    if not pair:
+                        continue
+
+                    res_i = pair[0] + 1  # Convert to 1-based indexing
+                    res_j = pair[1] + 1
+
+                    # Get residue names from the sequence
+                    if 0 <= res_i - 1 < len(sequence) and 0 <= res_j - 1 < len(sequence):
+                        res_i_name = f"{sequence[res_i - 1]}{res_i}"
+                        res_j_name = f"{sequence[res_j - 1]}{res_j}"
+                    else:
+                        res_i_name = f"N{res_i}"
+                        res_j_name = f"N{res_j}"
+
+                    anno = annotations[pair_idx] if pair_idx < len(annotations) else 'XXX'
+
+                    base_pairs.append({
+                        'res_i': res_i,
+                        'res_j': res_j,
+                        'res_i_name': res_i_name,
+                        'res_j_name': res_j_name,
+                        'anno': anno
+                    })
+
+            # Always assign a DataFrame (even if empty)
+            frames_dict[frame_num] = pd.DataFrame(base_pairs)
+
+        return frames_dict, sequence
+    
+    # Process barnaba results into our format
+    stackings, pairings, res = stackings, pairings, res = bb.annotate(traj_xtc_path, topology=native_pdb_path)
+    frames_dict, sequence = process_barnaba_pairings(pairings, res)
+    print(len(frames_dict))
+    print(f"RNA length: {len(sequence)} nucleotides") 
+    print(f"Found {len(frames_dict)} frames in the data")
+    frame_num, frame_data = sorted(frames_dict.items())[0]
+    
+    # Save pairings to CSV
+    pairings_df = pd.DataFrame(pairings)
+    pairings_df.to_csv(os.path.join(download_path, "pairings.csv"), index=False)
+    
+    # Save frames_dict and sequence to pickle
+    data_to_save = {
+        'frames_dict': frames_dict,
+        'sequence': sequence
+    }
+    with open(os.path.join(generate_data_path, "contact_map_data.pkl"), 'wb') as f:
+        pickle.dump(data_to_save, f)
+        
+    fig = plot_rna_contact_map(frame_data, sequence, output_file=os.path.join(plot_path, "contact_map.html"), frame_number=frame_num)
+    plotly_data = plotly_to_json(fig)
+    return plotly_data
+
+
+@app2.task(bind=True, max_retries=3)
+def generate_landscape_plot(self, native_pdb_path,traj_xtc_path, download_path, plot_path, session_id, landscape_stride, generate_data_path):
     try:
         traj_load = md.load_xtc(traj_xtc_path,native_pdb_path)
         native_load = md.load_pdb(native_pdb_path)
         q_values = best_hummer_q(traj_load, native_load)
-        rmsd = bb.rmsd(
+        rmsd = bb.ermsd(
             native_pdb_path,
             traj_xtc_path,
-            topology=native_pdb_path,
-            heavy_atom=True,
+            topology=native_pdb_path
         )
         print(len(rmsd))
 
@@ -303,6 +421,8 @@ def generate_landscape_plot(self, native_pdb_path,traj_xtc_path, download_path, 
                 "traj": "traj_1",
             }
         )
+        with open(os.path.join(generate_data_path, "dataframe.pkl"), 'wb') as f:
+            pickle.dump(df, f)
         print("finished dataframe")
         size = 65
         selected_regions = []
@@ -320,8 +440,9 @@ def generate_landscape_plot(self, native_pdb_path,traj_xtc_path, download_path, 
         fig = plot_landscapes_3D(
             energy_matrix, Qbin, RMSDbin, max_RMSD, real_values, selected_regions
         )
-
-        path_landscape = f"static/{session_id}/landscape.png"
+        path_landscape_3d = f"static/{session_id}/download_plot/LANDSCAPE/landscape.html"
+        fig.write_html(path_landscape_3d)
+        path_landscape = f"static/{session_id}/download_plot/LANDSCAPE/landscape.png"
         energy_3dplot.energy_plot(
             energy_matrix,
             Qbin,
