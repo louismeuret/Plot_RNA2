@@ -1,4 +1,4 @@
-import numpy as np 
+import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib as mlp
 import pandas as pd
@@ -28,19 +28,20 @@ def make_emptylists_matrix(dimension):
 #I want a matrix (24x24) to keep bins consistent with previous 2D plots
 
 def make_matrix_probability(df, dimension, maximal_RMSD):
-	#generate our matrix
-	matrix_counts=np.zeros((dimension,dimension))
-	matrix_txt=make_emptylists_matrix((dimension))
-	bin_size_Q=float(1/dimension)
-	bin_size_RMSD=float(maximal_RMSD/dimension)
-	for i in range(len(df)):
-		q_normalized=int(df['Q'][i]/bin_size_Q)
-		rmsd_normalized=int(df['RMSD'][i]/bin_size_RMSD)
-		if q_normalized and rmsd_normalized:	
-			matrix_counts[q_normalized-1][rmsd_normalized-1]+=1
-			matrix_txt[q_normalized-1][rmsd_normalized-1].append([df['traj'][i],df['frame'][i]])
-	matrix_probability=np.divide(matrix_counts, (len(df['frame']))) 
-	return (matrix_probability, matrix_txt, bin_size_Q, bin_size_RMSD)
+    matrix_counts = np.zeros((dimension, dimension))
+    matrix_txt = make_emptylists_matrix(dimension)
+    bin_size_Q = 1.0 / dimension
+    bin_size_RMSD = maximal_RMSD / dimension
+
+    for i in range(len(df)):
+        q_normalized = min(int(df['Q'][i] / bin_size_Q), dimension - 1)
+        rmsd_normalized = min(int(df['RMSD'][i] / bin_size_RMSD), dimension - 1)
+        matrix_counts[q_normalized][rmsd_normalized] += 1
+        matrix_txt[q_normalized][rmsd_normalized].append([df['traj'][i], df['frame'][i]])
+
+    matrix_probability = matrix_counts / len(df['frame'])
+    return matrix_probability, matrix_txt, bin_size_Q, bin_size_RMSD
+
 
 def probability_plot(matrix_probability, bin_size_Q, bin_size_RMSD, maximal_RMSD):
 	#initialize...
@@ -76,7 +77,7 @@ def energy_plot_3d(matrix_energy_rescaled, bin_size_Q, bin_size_RMSD, maximal_RM
     # Add rectangles for the squares (as 3D boxes)
     colours = dict(zip(squares, px.colors.qualitative.T10[:len(squares)]))
     labels = dict(zip(squares, [ascii_uppercase[i] for i in range(len(squares))]))
-    
+
     for square in squares:
         x0, x1, y0, y1 = square
         fig.add_trace(go.Scatter3d(
@@ -102,7 +103,7 @@ def energy_plot_3d(matrix_energy_rescaled, bin_size_Q, bin_size_RMSD, maximal_RM
     )
 
     return fig
-	
+
 
 def make_matrix_energy(matrix_probability, maximal, dimension):
 	#convert probability into energy
@@ -168,10 +169,3 @@ selected_regions=[] #list of tuples with minQ, maxQ, minRMSD, maxRMSD FROM CLOSE
 #probability_plot(probability_matrix, Qbin, RMSDbin, max_RMSD)
 #energy_matrix, real_values=make_matrix_energy(probability_matrix, max_RMSD, size)
 #energy_plot(energy_matrix, Qbin, RMSDbin, max_RMSD, real_values, selected_regions)
-
-
-
-
-
-
-

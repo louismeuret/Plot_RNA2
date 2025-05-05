@@ -192,6 +192,8 @@ def upload_files():
         "frame_range": frame_range,
         "torsionResidue": request.form.get("torsionResidue", 0),
         "landscape_stride": request.form.get("landscape_stride", 0),
+        "landscape_first_component": request.form.get("firstDimension", 0),
+        "landscape_second_component": request.form.get("secondDimension", 0),
         "form": list(request.form),
         "files": {
             "nativePdb": str(request.files["nativePdb"].filename),
@@ -443,7 +445,7 @@ def view_trajectory(session_id, native_pdb, traj_xtc):
             plot_data.append([plot, "scatter", job.id])
 
         elif plot == "LANDSCAPE":
-            job = generate_landscape_plot.apply_async(args=[native_pdb_path, traj_xtc_path, files_path, plot_dir, session_id, session.get("landscape_stride", 1), generate_data_path])
+            job = generate_landscape_plot.apply_async(args=[native_pdb_path, traj_xtc_path, files_path, plot_dir, session_id, [session.get("landscape_stride", 1),session.get("landscape_first_component", 1),session.get("landscape_second_component", 1)], generate_data_path])
             plot_data.append([plot, "surface", job.id])
 
         elif plot == "BASE_PAIRING":

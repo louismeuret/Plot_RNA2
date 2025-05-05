@@ -124,7 +124,8 @@
                     </div>
                     <div class="field">
                         <label class="label" for="trajXtc"
-                            >Trajectory File: (Max 2gb, please use a format supported by MDAnalysis and MDtraj)</label
+                            >Trajectory File: (Max 2gb, please use a format
+                            supported by MDAnalysis and MDtraj)</label
                         >
                         <div class="control">
                             <input
@@ -249,7 +250,10 @@
                                     </span>
                                 </label>
                                 <div class="select mt-2">
-                                    <select id="torsionAngle1" name="torsionAngle1">
+                                    <select
+                                        id="torsionAngle1"
+                                        name="torsionAngle1"
+                                    >
                                         <option value="" disabled selected>
                                             Select first torsion angle
                                         </option>
@@ -262,7 +266,10 @@
                                     </select>
                                 </div>
                                 <div class="select mt-2">
-                                    <select id="torsionAngle2" name="torsionAngle2">
+                                    <select
+                                        id="torsionAngle2"
+                                        name="torsionAngle2"
+                                    >
                                         <option value="" disabled selected>
                                             Select second torsion angle
                                         </option>
@@ -365,6 +372,44 @@
                                 placeholder="Precision of the Energy Landscape, (as a stride, 2 meaning one of two frames considered)"
                                 value="1"
                             /><br />
+                            <div class="select mt-2">
+                                <label for="firstDimension"
+                                    >First Dimension:</label
+                                >
+                                <select
+                                    id="firstDimension"
+                                    name="firstDimension"
+                                >
+                                    <option value="" disabled selected>
+                                        Select First Dimension
+                                    </option>
+                                    <option value="RMSD">RMSD</option>
+                                    <option value="eRMSD">eRMSD</option>
+                                    <option value="Torsion">Torsion</option>
+                                    <option value="Fraction of Contact Formed">
+                                        Fraction of Contact Formed
+                                    </option>
+                                </select>
+                            </div>
+                            <div class="select mt-2">
+                                <label for="secondDimension"
+                                    >Second Dimension:</label
+                                >
+                                <select
+                                    id="secondDimension"
+                                    name="secondDimension"
+                                >
+                                    <option value="" disabled selected>
+                                        Select Second Dimension
+                                    </option>
+                                    <option value="RMSD">RMSD</option>
+                                    <option value="eRMSD">eRMSD</option>
+                                    <option value="Torsion">Torsion</option>
+                                    <option value="Fraction of Contact Formed">
+                                        Fraction of Contact Formed
+                                    </option>
+                                </select>
+                            </div>
                         </div>
                     </div>
                     <div class="control">
@@ -512,7 +557,10 @@
                 console.log("SESSION ID:");
                 console.log(sessionId);
                 const socket = io.connect(
-                    (location.protocol === 'https:' ? 'https://' : 'http://') + document.domain + ":" + location.port,
+                    (location.protocol === "https:" ? "https://" : "http://") +
+                        document.domain +
+                        ":" +
+                        location.port,
                     {
                         query: "session_id=" + sessionId,
                     },

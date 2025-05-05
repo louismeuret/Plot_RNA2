@@ -277,19 +277,19 @@ def generate_escore_plot(self, traj_xtc_path, native_pdb_path, download_path, pl
 
 @app2.task(bind=True, max_retries=3)
 def update_contact_map_plot(self, generate_data_path, plot_path,  frame_number, session_id):
-    
+
     with open(os.path.join(generate_data_path, "contact_map_data.pkl"), 'rb') as f:
         loaded_data = pickle.load(f)
-    
+
     frames_dict = loaded_data['frames_dict']
     sequence = loaded_data['sequence']
-    
+
     frame_num, frame_data = sorted(frames_dict.items())[frame_number]
     print(f"EXPECTED DIRECTORY TO SAVE PLOTS = {os.path.join(plot_path, 'contact_map.html')}")
     fig = plot_rna_contact_map(frame_data, sequence, output_file=os.path.join(plot_path, "contact_map.html"), frame_number=frame_num)
     plotly_data = plotly_to_json(fig)
     return plotly_data
-    
+
 
 @app2.task(bind=True, max_retries=3)
 def update_landscape_frame(self, generate_data_path, coordinates):
@@ -298,13 +298,13 @@ def update_landscape_frame(self, generate_data_path, coordinates):
     df = loaded_data
     target_Q = coordinates['Q']
     target_RMSD = coordinates['RMSD']
-    
+
     # Calculate Euclidean distance between target coordinates and all points
     distances = np.sqrt((df['Q'] - target_Q)**2 + (df['RMSD'] - target_RMSD)**2)
     closest_frame_idx = distances.idxmin()
     closest_frame = int(df.iloc[closest_frame_idx]['frame'])  # Convert to Python int
     return closest_frame
-    
+
 
 
 @app2.task(bind=True, max_retries=3)
@@ -370,19 +370,19 @@ def generate_contact_map_plot(self, native_pdb_path, traj_xtc_path, download_pat
             frames_dict[frame_num] = pd.DataFrame(base_pairs)
 
         return frames_dict, sequence
-    
+
     # Process barnaba results into our format
     stackings, pairings, res = stackings, pairings, res = bb.annotate(traj_xtc_path, topology=native_pdb_path)
     frames_dict, sequence = process_barnaba_pairings(pairings, res)
     print(len(frames_dict))
-    print(f"RNA length: {len(sequence)} nucleotides") 
+    print(f"RNA length: {len(sequence)} nucleotides")
     print(f"Found {len(frames_dict)} frames in the data")
     frame_num, frame_data = sorted(frames_dict.items())[0]
-    
+
     # Save pairings to CSV
     pairings_df = pd.DataFrame(pairings)
     pairings_df.to_csv(os.path.join(download_path, "pairings.csv"), index=False)
-    
+
     # Save frames_dict and sequence to pickle
     data_to_save = {
         'frames_dict': frames_dict,
@@ -390,34 +390,85 @@ def generate_contact_map_plot(self, native_pdb_path, traj_xtc_path, download_pat
     }
     with open(os.path.join(generate_data_path, "contact_map_data.pkl"), 'wb') as f:
         pickle.dump(data_to_save, f)
-        
+
     fig = plot_rna_contact_map(frame_data, sequence, output_file=os.path.join(plot_path, "contact_map.html"), frame_number=frame_num)
     plotly_data = plotly_to_json(fig)
     return plotly_data
 
 
 @app2.task(bind=True, max_retries=3)
-def generate_landscape_plot(self, native_pdb_path,traj_xtc_path, download_path, plot_path, session_id, landscape_stride, generate_data_path):
+def generate_landscape_plot(self, native_pdb_path,traj_xtc_path, download_path, plot_path, session_id, parameters, generate_data_path):
+    def calculate_structural_metrics(parameters, traj_load, native_load, native_pdb_path, traj_xtc_path):
+        """
+        Calculate structural metrics for trajectory analysis based on specified parameters.
+
+        Args:
+            parameters (list): List of metrics to calculate
+            traj_load: Loaded trajectory data
+            native_load: Loaded native structure data
+            native_pdb_path (str): Path to native PDB file
+            traj_xtc_path (str): Path to trajectory XTC file
+
+        Returns:
+            dict: Dictionary containing calculated metrics
+        """
+        # Define a dictionary mapping calculation types to their functions
+        calculation_functions = {
+            "Q": lambda: best_hummer_q(traj_load, native_load),
+            "RMSD": lambda: bb.rmsd(
+                native_pdb_path,
+                traj_xtc_path,
+                topology=native_pdb_path,
+                heavy_atom=True,
+            ),
+            "eRMSD": lambda: bb.ermsd(
+                native_pdb_path,
+                traj_xtc_path,
+                topology=native_pdb_path
+            ),
+            "Torsion": lambda: print('torsion')
+        }
+
+        # Initialize results dictionary
+        results = {}
+
+        # Calculate requested metrics
+        for metric in parameters:
+            if metric in calculation_functions:
+                results[metric] = calculation_functions[metric]()
+            else:
+                results[metric] = None
+                print(f"Warning: Unknown metric '{metric}'. Skipping calculation.")
+
+        return results
+
     try:
         traj_load = md.load_xtc(traj_xtc_path,native_pdb_path)
         native_load = md.load_pdb(native_pdb_path)
-        q_values = best_hummer_q(traj_load, native_load)
-        rmsd = bb.ermsd(
-            native_pdb_path,
-            traj_xtc_path,
-            topology=native_pdb_path
-        )
-        print(len(rmsd))
+        print(parameters)
+        metrics_to_calculate = [parameters[1],parameters[2]]
 
-        stride = int(landscape_stride)
-        values = [q_values[x] for x in range(0, len(traj_load), stride)]
-        good_rmsd = [rmsd[x] for x in range(0, len(traj_load), stride)]
+        results = calculate_structural_metrics(
+                metrics_to_calculate,
+                traj_load,
+                native_load,
+                native_pdb_path,
+                traj_xtc_path
+        )
+        print(parameters[0])
+        stride = int(parameters[0])
+        component1 = [results[parameters[1]][x] for x in range(0, len(traj_load), stride)]
+        component2 = [results[parameters[2]][x] for x in range(0, len(traj_load), stride)]
+        print(results)
+        #component1 = results[parameters[1]][::stride]
+        #component2 = results[parameters[2]][::stride]
+
 
         df = pd.DataFrame(
             {
-                "frame": list(range(0, len(good_rmsd))),
-                "Q": values,
-                "RMSD": good_rmsd,
+                "frame": list(range(0, len(component2))),
+                "Q": component1,
+                "RMSD": component2,
                 "traj": "traj_1",
             }
         )
