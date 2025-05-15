@@ -1,3 +1,4 @@
+---
 ````markdown
 # ARNy Plotter — Trajectory Plotting Web Application for RNA
 
@@ -137,7 +138,5 @@ For questions, issues, or suggestions, please open an issue on the [GitHub repos
 ## License
 
 [MIT License](LICENSE)
-
-```
 
 
