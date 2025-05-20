@@ -306,7 +306,7 @@ class Installer:
                 f.write(f"start \"flower\" cmd /c celery --broker=redis://localhost:6379/0 flower > logs\\flower_output.log 2>&1\r\n")
 
                 # Start Gunicorn (use alternative if gunicorn not available on Windows)
-                f.write(f"start \"gunicorn\" cmd /c gunicorn --worker-class eventlet --access-logfile - --error-logfile - --timeout 600 -b 127.0.0.1:6969 -w 1 app7:app > logs\\gunicorn_output.log 2>&1\r\n")
+                f.write(f"start \"gunicorn\" cmd /c gunicorn --worker-class eventlet --access-logfile - --error-logfile - --timeout 600 -b 127.0.0.1:4242 -w 1 app7:app > logs\\gunicorn_output.log 2>&1\r\n")
 
                 f.write(f"goto :eof\r\n\r\n")
 
