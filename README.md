@@ -114,7 +114,7 @@ You sould (hopefully) be able to access the webserver.
 * Viewer controls under Mol\* trajectory player are partially broken.
 * Mol\* viewer can't handle trajectories >2GB (Cloudflare tunnel also limits upload size).
 * Not all file formats tested – relies on **MDAnalysis**/**MDTraj** support.
-* Plot-generated files download is currently **non-functional**.
+* Plot-generated files download is currently **partially-functional**.
 * Page reloads **recompute data** — use session sharing to avoid this.
 * Large data can crash the interface — use stride or frame ranges to reduce load.
 
@@ -133,7 +133,7 @@ You sould (hopefully) be able to access the webserver.
 
 ## 📫 Contact
 
-For questions, issues, or suggestions, please open an issue on the [GitHub repository](https://github.com/louismeuret/Plot_RNA2).
+For questions, issues, or suggestions, please open an issue on the [GitHub repository](https://github.com/louismeuret/Plot_RNA2), or send me an email at louis.meuret [at] etu.u-paris.fr
 
 ---
 
