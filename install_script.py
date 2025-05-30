@@ -341,7 +341,7 @@ class Installer:
                 f.write(f"nohup redis-server > /dev/null 2>&1 &\n")
                 f.write(f"nohup celery -A tasks_celery worker --loglevel=INFO --concurrency=10 > logs/celery_worker_output.log 2>&1 &\n")
                 f.write(f"nohup celery --broker=redis://localhost:6379/0 flower > logs/flower_output.log 2>&1 &\n")
-                f.write(f"nohup gunicorn --worker-class eventlet --access-logfile '-' --error-logfile '-' --timeout 600 -b 127.0.0.1:6969 -w 1 'app7:app' > logs/gunicorn_output.log 2>&1 &\n")
+                f.write(f"nohup gunicorn --worker-class eventlet --access-logfile '-' --error-logfile '-' --timeout 600 -b 127.0.0.1:4242 -w 1 'app7:app' > logs/gunicorn_output.log 2>&1 &\n")
 
                 #f.write(f"python \"{self.install_path / main_script}\" \"$@\"\n")
 
