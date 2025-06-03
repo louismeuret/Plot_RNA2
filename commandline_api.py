@@ -27,7 +27,7 @@ class RNATrajectoryAnalysis:
         self.session_id = None
         self.native_pdb = None
         self.traj_xtc = None
-        
+
         if not verify_ssl:
             warnings.warn("SSL verification is disabled. This is not recommended for production use.")
 
@@ -73,7 +73,7 @@ class RNATrajectoryAnalysis:
 
         if frame_options is None:
             frame_options = {"n_frames": 1, "first_frame": "", "last_frame": "", "stride": ""}
-            
+
         if landscape_params is None:
             landscape_params = {"x_param": "ERMSD", "y_param": "Q"}
 
@@ -89,7 +89,7 @@ class RNATrajectoryAnalysis:
         # Add selected plots to form data
         for plot in analysis_options:
             form_data[plot.lower()] = "on"
-            
+
         # Add LANDSCAPE parameters if LANDSCAPE is selected
         if "LANDSCAPE" in analysis_options:
             x_param = landscape_params.get("x_param", "ERMSD")
@@ -99,13 +99,13 @@ class RNATrajectoryAnalysis:
             form_data["firstDimension"] = landscape_params.get("x_param", "ERMSD")
             form_data["secondDimension"] = landscape_params.get("y_param", "Q")
             form_data["landscape_stride"] = 1
-            
+
             # Replace ERMSD with eRMSD if needed
             if x_param == "ERMSD":
                 form_data["firstDimension"] = "eRMSD"
             if y_param == "ERMSD":
                 form_data["secondDimension"] = "eRMSD"
-                
+
 
         # Prepare files
         files = {
@@ -391,11 +391,11 @@ class RNATrajectoryAnalysis:
             "LANDSCAPE",
             "BASE_PAIRING"
         ]
-        
+
     def get_landscape_parameters(self):
         """
         Get available parameters for LANDSCAPE plots.
-        
+
         Returns:
             dict: Dictionary with available X and Y parameters
         """
@@ -410,7 +410,7 @@ def main():
     parser.add_argument('trajectory', help='Path to the trajectory XTC file')
     parser.add_argument('topology', help='Path to the topology PDB file')
     parser.add_argument('--analyses', nargs='+', default=['RMSD', 'ERMSD'],
-                      choices=['RMSD', 'ERMSD', 'CONTACT_MAPS', 'TORSION', 'SEC_STRUCTURE', 
+                      choices=['RMSD', 'ERMSD', 'CONTACT_MAPS', 'TORSION', 'SEC_STRUCTURE',
                               'DOTBRACKET', 'ARC', 'LANDSCAPE', 'BASE_PAIRING', 'ALL'],
                       help='List of analyses to run (or "ALL" to run everything)')
     parser.add_argument('--n_frames', type=int, default=1,
@@ -421,7 +421,7 @@ def main():
                        help='Last frame to analyze')
     parser.add_argument('--stride', type=int, default=1,
                        help='Stride for frame selection')
-    parser.add_argument('--server', default='http://localhost:6969',
+    parser.add_argument('--server', default='http://localhost:4242',
                        help='Server URL for the analysis service')
     parser.add_argument('--no-verify-ssl', action='store_true',
                        help='Disable SSL certificate verification (not recommended for production)')
@@ -433,7 +433,7 @@ def main():
                        help='Disable progress animation')
 
     args = parser.parse_args()
-    
+
     all_analyses = ['RMSD', 'ERMSD', 'CONTACT_MAPS',
                     'SEC_STRUCTURE', 'DOTBRACKET', 'ARC',
                     'LANDSCAPE', 'BASE_PAIRING']
@@ -448,7 +448,7 @@ def main():
         'last_frame': args.last_frame,
         'stride': args.stride
     }
-    
+
     # Create landscape parameters dictionary
     landscape_params = {
         'x_param': args.landscape_x,
@@ -475,7 +475,7 @@ def main():
     # Wait for analysis to complete
     print("Waiting for analysis to complete...")
     status_result = client.get_analysis_status(
-        max_retries=60, 
+        max_retries=60,
         retry_interval=5,
         show_progress=not args.no_progress
     )
