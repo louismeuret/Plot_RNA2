@@ -381,10 +381,18 @@ def plot_sec_structure(sec_structure):
     return fig
 
 def plot_landscapes_3D(
-    energy_matrix, Qbin, RMSDbin, max_RMSD, real_values, selected_regions
+    energy_matrix, Qbin, RMSDbin, max_RMSD, max_Q,  real_values, selected_regions, names_axis
 ):
     fig = energy_3dplot.energy_plot_3d(
-        energy_matrix, Qbin, RMSDbin, max_RMSD, real_values, selected_regions
+        energy_matrix, Qbin, RMSDbin, max_RMSD, max_Q, real_values, selected_regions, names_axis
+    )
+    return fig
+
+def plot_landscapes_2D(
+    energy_matrix, Qbin, RMSDbin, max_RMSD, max_Q, real_values, selected_regions, names_axis
+):
+    fig = energy_3dplot.energy_plot_2d(
+        energy_matrix, Qbin, RMSDbin, max_RMSD, max_Q, real_values, selected_regions, names_axis
     )
     return fig
 

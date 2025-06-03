@@ -5,6 +5,7 @@ import os
 import zipfile
 import io
 import argparse
+import sys
 from urllib.parse import urljoin
 import warnings
 
@@ -49,7 +50,7 @@ class RNATrajectoryAnalysis:
         print(session_id)
         return session_id
 
-    def upload_files(self, native_pdb_path, traj_xtc_path, analysis_options=None, frame_options=None):
+    def upload_files(self, native_pdb_path, traj_xtc_path, analysis_options=None, frame_options=None, landscape_params=None):
         """
         Upload PDB and XTC files for analysis.
 
@@ -58,6 +59,7 @@ class RNATrajectoryAnalysis:
             traj_xtc_path (str): Path to the trajectory XTC file
             analysis_options (list): List of analysis types to perform (e.g., ["RMSD", "ERMSD", "TORSION"])
             frame_options (dict): Dict with frame selection options (e.g., {"n_frames": 10, "first_frame": 1, "last_frame": 100, "stride": 1})
+            landscape_params (dict): Parameters for LANDSCAPE plot (e.g., {"x_param": "ERMSD", "y_param": "Q"})
 
         Returns:
             dict: Response from the server with the status of the upload
@@ -71,6 +73,9 @@ class RNATrajectoryAnalysis:
 
         if frame_options is None:
             frame_options = {"n_frames": 1, "first_frame": "", "last_frame": "", "stride": ""}
+            
+        if landscape_params is None:
+            landscape_params = {"x_param": "ERMSD", "y_param": "Q"}
 
         # Prepare form data
         form_data = {
@@ -84,6 +89,23 @@ class RNATrajectoryAnalysis:
         # Add selected plots to form data
         for plot in analysis_options:
             form_data[plot.lower()] = "on"
+            
+        # Add LANDSCAPE parameters if LANDSCAPE is selected
+        if "LANDSCAPE" in analysis_options:
+            x_param = landscape_params.get("x_param", "ERMSD")
+            y_param = landscape_params.get("y_param", "Q")
+
+
+            form_data["firstDimension"] = landscape_params.get("x_param", "ERMSD")
+            form_data["secondDimension"] = landscape_params.get("y_param", "Q")
+            form_data["landscape_stride"] = 1
+            
+            # Replace ERMSD with eRMSD if needed
+            if x_param == "ERMSD":
+                form_data["firstDimension"] = "eRMSD"
+            if y_param == "ERMSD":
+                form_data["secondDimension"] = "eRMSD"
+                
 
         # Prepare files
         files = {
@@ -106,9 +128,9 @@ class RNATrajectoryAnalysis:
             )
 
             # Print detailed response information for debugging
-            print(f"Response status code: {response.status_code}")
-            print(f"Response headers: {response.headers}")
-            print(f"Response text: {response.text}")
+            #print(f"Response status code: {response.status_code}")
+            #print(f"Response headers: {response.headers}")
+            #print(f"Response text: {response.text}")
 
             # Close file handles
             for file_obj in files.values():
@@ -125,13 +147,14 @@ class RNATrajectoryAnalysis:
                 file_obj[1].close()
             return {"status": "error", "message": str(e)}
 
-    def get_analysis_status(self, max_retries=30, retry_interval=2):
+    def get_analysis_status(self, max_retries=30, retry_interval=2, show_progress=True):
         """
         Check the status of the analysis and wait until it's complete.
 
         Args:
             max_retries (int): Maximum number of retries
             retry_interval (int): Interval between retries in seconds
+            show_progress (bool): Whether to show a progress animation
 
         Returns:
             dict: Analysis results or error information
@@ -145,6 +168,14 @@ class RNATrajectoryAnalysis:
             f"/retrieve-results?session_id={self.session_id}"
         )
 
+        # ASCII loading animations
+        loading_frames = [
+            "O       o O       o O       o\n| O   o | | O   o | | O   o |\n| | O | | | | O | | | | O | |\n| o   O | | o   O | | o   O |\no       O o       O o       O",
+            "o       O o       O o       O\n| o   O | | o   O | | o   O |\n| | O | | | | O | | | | O | |\n| O   o | | O   o | | O   o |\nO       o O       o O       o",
+            "O       o O       o O       o\n| O   o | | O   o | | O   o |\n| | O | | | | O | | | | O | |\n| o   O | | o   O | | o   O |\no       O o       O o       O",
+            "o       O o       O o       O\n| o   O | | o   O | | o   O |\n| | O | | | | O | | | | O | |\n| O   o | | O   o | | O   o |\nO       o O       o O       o"
+        ]
+
         # Then poll for results
         for attempt in range(max_retries):
             try:
@@ -152,6 +183,11 @@ class RNATrajectoryAnalysis:
 
                 if response.status_code == 200:
                     # Successful result
+                    if show_progress:
+                        # Clear the loading animation
+                        sys.stdout.write("\033[F" * 5)  # Move cursor up 5 lines
+                        sys.stdout.write("\033[K" * 5)  # Clear 5 lines
+                        sys.stdout.flush()
                     return {
                         "status": "success",
                         "message": "Analysis complete",
@@ -159,18 +195,42 @@ class RNATrajectoryAnalysis:
                     }
                 elif response.status_code == 404:
                     # Results not ready yet
-                    print(f"Analysis in progress... (attempt {attempt+1}/{max_retries})")
+                    if show_progress:
+                        # Show loading animation
+                        frame_idx = attempt % len(loading_frames)
+                        # Clear previous frame if not the first attempt
+                        if attempt > 0:
+                            sys.stdout.write("\033[F" * 5)  # Move cursor up 5 lines
+                        print(loading_frames[frame_idx])
+                        sys.stdout.flush()
+                    else:
+                        print(f"Analysis in progress... (attempt {attempt+1}/{max_retries})")
                     time.sleep(retry_interval)
                 else:
                     # Unexpected status code
+                    if show_progress:
+                        # Clear the loading animation
+                        sys.stdout.write("\033[F" * 5)  # Move cursor up 5 lines
+                        sys.stdout.write("\033[K" * 5)  # Clear 5 lines
+                        sys.stdout.flush()
                     return {
                         "status": "error",
                         "message": f"Got unexpected status code: {response.status_code}"
                     }
 
             except Exception as e:
+                if show_progress:
+                    # Clear the loading animation
+                    sys.stdout.write("\033[F" * 5)  # Move cursor up 5 lines
+                    sys.stdout.write("\033[K" * 5)  # Clear 5 lines
+                    sys.stdout.flush()
                 return {"status": "error", "message": str(e)}
 
+        if show_progress:
+            # Clear the loading animation
+            sys.stdout.write("\033[F" * 5)  # Move cursor up 5 lines
+            sys.stdout.write("\033[K" * 5)  # Clear 5 lines
+            sys.stdout.flush()
         return {"status": "error", "message": "Analysis timed out"}
 
     def download_plot_data(self, plot_id):
@@ -320,7 +380,6 @@ class RNATrajectoryAnalysis:
             "RMSD",
             "ERMSD",
             "CONTACT_MAPS",
-            "TORSION",
             "SEC_STRUCTURE",
             "DOTBRACKET",
             "ARC",
@@ -332,13 +391,28 @@ class RNATrajectoryAnalysis:
             "LANDSCAPE",
             "BASE_PAIRING"
         ]
+        
+    def get_landscape_parameters(self):
+        """
+        Get available parameters for LANDSCAPE plots.
+        
+        Returns:
+            dict: Dictionary with available X and Y parameters
+        """
+        return {
+            "x_params": ["RMSD", "ERMSD", "TORSION", "Q"],
+            "y_params": ["RMSD", "ERMSD", "TORSION", "Q"]
+        }
 
 def main():
     # Set up argument parser
     parser = argparse.ArgumentParser(description='RNA Trajectory Analysis Tool')
     parser.add_argument('trajectory', help='Path to the trajectory XTC file')
     parser.add_argument('topology', help='Path to the topology PDB file')
-    parser.add_argument('--analyses', nargs='+', default=['RMSD', 'ERMSD'],choices=['RMSD', 'ERMSD', 'CONTACT_MAPS', 'SEC_STUCTURE', 'DOTBRACKET', 'ARC', 'LANDSCAPE', 'BASE_PAIRING', 'ALL'],help='List of analyses to run (or "ALL" to run everything)')
+    parser.add_argument('--analyses', nargs='+', default=['RMSD', 'ERMSD'],
+                      choices=['RMSD', 'ERMSD', 'CONTACT_MAPS', 'TORSION', 'SEC_STRUCTURE', 
+                              'DOTBRACKET', 'ARC', 'LANDSCAPE', 'BASE_PAIRING', 'ALL'],
+                      help='List of analyses to run (or "ALL" to run everything)')
     parser.add_argument('--n_frames', type=int, default=1,
                        help='Number of frames to analyze')
     parser.add_argument('--first_frame', type=int, default=0,
@@ -350,14 +424,19 @@ def main():
     parser.add_argument('--server', default='http://localhost:6969',
                        help='Server URL for the analysis service')
     parser.add_argument('--no-verify-ssl', action='store_true',
-                    help='Disable SSL certificate verification (not recommended for production)')
-
+                       help='Disable SSL certificate verification (not recommended for production)')
+    parser.add_argument('--landscape-x', choices=['RMSD', 'ERMSD', 'TORSION', 'Q'], default='ERMSD',
+                       help='X-axis parameter for LANDSCAPE plot')
+    parser.add_argument('--landscape-y', choices=['RMSD', 'ERMSD', 'TORSION', 'Q'], default='Q',
+                       help='Y-axis parameter for LANDSCAPE plot')
+    parser.add_argument('--no-progress', action='store_true',
+                       help='Disable progress animation')
 
     args = parser.parse_args()
     
     all_analyses = ['RMSD', 'ERMSD', 'CONTACT_MAPS',
-                'SEC_STRUCTURE', 'DOTBRACKET', 'ARC',
-                'LANDSCAPE', 'BASE_PAIRING']
+                    'SEC_STRUCTURE', 'DOTBRACKET', 'ARC',
+                    'LANDSCAPE', 'BASE_PAIRING']
 
     if 'ALL' in args.analyses:
         args.analyses = all_analyses
@@ -369,6 +448,12 @@ def main():
         'last_frame': args.last_frame,
         'stride': args.stride
     }
+    
+    # Create landscape parameters dictionary
+    landscape_params = {
+        'x_param': args.landscape_x,
+        'y_param': args.landscape_y
+    }
 
     # Initialize the client
     client = RNATrajectoryAnalysis(base_url=args.server, verify_ssl=not args.no_verify_ssl)
@@ -379,7 +464,8 @@ def main():
         native_pdb_path=args.topology,
         traj_xtc_path=args.trajectory,
         analysis_options=args.analyses,
-        frame_options=frame_options
+        frame_options=frame_options,
+        landscape_params=landscape_params
     )
 
     if upload_result['status'] != 'success':
@@ -388,15 +474,19 @@ def main():
 
     # Wait for analysis to complete
     print("Waiting for analysis to complete...")
-    status_result = client.get_analysis_status(max_retries=60, retry_interval=5)
+    status_result = client.get_analysis_status(
+        max_retries=60, 
+        retry_interval=5,
+        show_progress=not args.no_progress
+    )
 
     if status_result['status'] != 'success':
         print(f"Error during analysis: {status_result['message']}")
         return
 
     # Print the results URL
-    print("\nAnalysis complete!")
-    print(f"Or access raw data at: {status_result['results_url']}")
+    print("\n\n\nAnalysis complete!")
+    print(f"Access raw data at: {status_result['results_url']}")
 
 if __name__ == "__main__":
     main()

@@ -108,6 +108,10 @@ def authors():
 def documentation():
     return render_template("documentation.html")
 
+@app.route("/documentationll")
+def documentation2():
+    return render_template("documentationll.html")
+
 def list_files(directory):
     # Your implementation of listing files
     return os.listdir(directory)  # Simplified example

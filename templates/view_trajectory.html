@@ -127,19 +127,33 @@
                 class="plots-scrollable-container"
                 style="display: none"
             >
-                {% for plot_info in plot_data %} {% if plot_info[0] == "TORSION"
-                %} {% include '_plot_torsion.html' %} {% elif plot_info[0] ==
-                "BASE_PAIRING" %} {% include '_plot_2Dbasepairing.html' %} {%
-                elif plot_info[0] == "ARC" %} {% include '_plot_arc.html' %} {%
-                elif plot_info[0] == "LANDSCAPE_PLT" %} {% include
-                '_plot_landscape.html' %} {% elif plot_info[0] == "RMSD" %} {%
-                include '_plot_rmsd.html' %} {% elif plot_info[0] == "DOTBRACKET" %} {%
-                    include '_plot_dotbracket.html' %}{% elif plot_info[0] == "ERMSD" %}
-                {% include '_plot_ermsd.html' %} {% elif plot_info[0] ==
-                "SEC_STRUCTURE" %} {% include '_plot_secondary_structure.html'
-                %} {% elif plot_info[0] == "LANDSCAPE" %} {% include '_plot_3D_landscape.html'%}{% elif plot_info[0] == "CONTACT_MAPS" %} {% include
-                '_plot_contacts.html' %} {% else %} {% include
-                '_plot_default.html' %} {% endif %} {% endfor %}
+                {% for plot_info in plot_data %}
+                    <div class="lazy-load-wrapper" data-plot-type="{{ plot_info[0] }}">
+                        {% if plot_info[0] == "TORSION" %}
+                            {% include '_plot_torsion.html' %}
+                        {% elif plot_info[0] == "BASE_PAIRING" %}
+                            {% include '_plot_2Dbasepairing.html' %}
+                        {% elif plot_info[0] == "ARC" %}
+                            {% include '_plot_arc.html' %}
+                        {% elif plot_info[0] == "LANDSCAPE_PLT" %}
+                            {% include '_plot_landscape.html' %}
+                        {% elif plot_info[0] == "RMSD" %}
+                            {% include '_plot_rmsd.html' %}
+                        {% elif plot_info[0] == "DOTBRACKET" %}
+                            {% include '_plot_dotbracket.html' %}
+                        {% elif plot_info[0] == "ERMSD" %}
+                            {% include '_plot_ermsd.html' %}
+                        {% elif plot_info[0] == "SEC_STRUCTURE" %}
+                            {% include '_plot_secondary_structure.html' %}
+                        {% elif plot_info[0] == "LANDSCAPE" %}
+                            {% include '_plot_3D_landscape.html' %}
+                        {% elif plot_info[0] == "CONTACT_MAPS" %}
+                            {% include '_plot_contacts.html' %}
+                        {% else %}
+                            {% include '_plot_default.html' %}
+                        {% endif %}
+                    </div>
+                {% endfor %}
             </div>
         </div>
     </div>

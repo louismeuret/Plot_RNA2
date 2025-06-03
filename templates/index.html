@@ -18,6 +18,34 @@
             href="{{ url_for('static', filename='favicon.ico') }}"
         />
         <style>
+
+select {
+  appearance: none;
+  -webkit-appearance: none; /* Chrome, Safari */
+  -moz-appearance: none;    /* Firefox */
+  background: none;
+  background-color: white;  /* Optional: your desired background */
+  border: 1px solid #ccc;   /* Optional styling */
+  padding-right: 1rem;      /* Space for custom icon if needed */
+}
+.select.is-arrowless::after {
+    display: none !important;
+}
+
+
+select::-ms-expand {
+  display: none; /* IE 10+ */
+}
+
+select {
+  background-image: none !important; /* Essential for Firefox */
+}
+
+
+
+        </style>
+        <style>
+            
             body,
             html {
                 margin: 0;
@@ -28,7 +56,7 @@
             }
             .container {
                 position: relative;
-                z-index: 1; /* Ensure container content is above canvas */
+                z-index: 2; /* Ensure container content is above canvas */
             }
             canvas {
                 position: absolute;
@@ -64,6 +92,7 @@
                 box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
                 text-align: center;
             }
+            
         </style>
     </head>
     <body>
@@ -79,7 +108,7 @@
                         color: #333;
                     "
                 >
-                    RNA MD Simulation Plotter
+                    ARNy Plotter 🪄 
                 </h1>
                 <p
                     class="subtitle"
@@ -110,7 +139,7 @@
                 >
                     <div class="field">
                         <label class="label" for="nativePdb"
-                            >Native PDB File:</label
+                            >Topology File: (Input here the Native state to be used in analysis)</label
                         >
                         <div class="control">
                             <input
@@ -137,7 +166,7 @@
                             />
                         </div>
                     </div>
-                    <div class="field">
+                    <div class="field" style="display: none;">
                         <label class="label" for="trajPdb"
                             >Topology PDB File:</label
                         >
@@ -196,12 +225,13 @@
                                     value="RMSD"
                                 />
                                 RMSD
+                                <a href="#" onclick="window.open(constructDocumentationUrl('RMSD'), '_blank'); return false;">
                                 <span
                                     class="icon has-tooltip"
                                     data-tooltip="Plot a Root mean Square Deviation Scatter plot"
                                 >
                                     <i class="fas fa-info-circle"></i>
-                                </span> </label
+                                </span> </a></label
                             ><br />
                             <label class="checkbox">
                                 <input
@@ -211,12 +241,14 @@
                                     value="ERMSD"
                                 />
                                 ERMSD
+                                <a href="#" onclick="window.open(constructDocumentationUrl('ERMSD'), '_blank'); return false;">
                                 <span
                                     class="icon has-tooltip"
                                     data-tooltip="Plot a ERMSD Scatter plot"
                                 >
                                     <i class="fas fa-info-circle"></i>
-                                </span> </label
+                                </span>
+                            </a> </label
                             ><br />
                             <label class="checkbox">
                                 <input
@@ -226,12 +258,15 @@
                                     value="BASE_PAIRING"
                                 />
                                 Base Pairing 2D Plot
+                                <a href="#" onclick="window.open(constructDocumentationUrl('2DBasePairing'), '_blank'); return false;">
                                 <span
                                     class="icon has-tooltip"
                                     data-tooltip="Plot a 2D representation of the base pairing"
                                 >
                                     <i class="fas fa-info-circle"></i>
-                                </span> </label
+                                </span>
+                            </a>
+                                </label
                             ><br />
                             <div style="display: none">
                                 <label class="checkbox">
@@ -242,17 +277,20 @@
                                         value="TORSION"
                                     />
                                     TORSION
-                                    <span
-                                        class="icon has-tooltip"
-                                        data-tooltip="Plot all angles values for a specific residue"
-                                    >
-                                        <i class="fas fa-info-circle"></i>
-                                    </span>
+                                    <a href="#" onclick="window.open(constructDocumentationUrl('Torsion'), '_blank'); return false;">
+                                        <span
+                                            class="icon has-tooltip"
+                                            data-tooltip="Plot all angles values for a specific residue"
+                                        >
+                                            <i class="fas fa-info-circle"></i>
+                                        </span>
+                                    </a>
                                 </label>
                                 <div class="select mt-2">
                                     <select
                                         id="torsionAngle1"
                                         name="torsionAngle1"
+                                        style="appearance: none; -webkit-appearance: none; -moz-appearance: none;"
                                     >
                                         <option value="" disabled selected>
                                             Select first torsion angle
@@ -265,7 +303,7 @@
                                         <option value="zeta">Zeta</option>
                                     </select>
                                 </div>
-                                <div class="select mt-2">
+                                <div class="select">
                                     <select
                                         id="torsionAngle2"
                                         name="torsionAngle2"
@@ -297,12 +335,13 @@
                                     value="SEC_STRUCTURE"
                                 />
                                 SEC_STRUCTURE
+                                <a href="#" onclick="window.open(constructDocumentationUrl('SecondaryStructure'), '_blank'); return false;">
                                 <span
                                     class="icon has-tooltip"
                                     data-tooltip="Secondary Structure"
                                 >
                                     <i class="fas fa-info-circle"></i>
-                                </span> </label
+                                </span></a> </label
                             ><br />
                             <label class="checkbox">
                                 <input
@@ -312,12 +351,13 @@
                                     value="DOTBRACKET"
                                 />
                                 DOTBRACKET
+                                <a href="#" onclick="window.open(constructDocumentationUrl('DotBracket'), '_blank'); return false;">
                                 <span
                                     class="icon has-tooltip"
                                     data-tooltip="Dot-Bracket Notation"
                                 >
                                     <i class="fas fa-info-circle"></i>
-                                </span> </label
+                                </span> </a></label
                             ><br />
                             <label class="checkbox">
                                 <input
@@ -327,12 +367,13 @@
                                     value="ARC"
                                 />
                                 ARC
+                                <a href="#" onclick="window.open(constructDocumentationUrl('Arc'), '_blank'); return false;">
                                 <span
                                     class="icon has-tooltip"
                                     data-tooltip="Plot a diagram in Arc, showing the frequency of contacts during the MD"
                                 >
                                     <i class="fas fa-info-circle"></i>
-                                </span> </label
+                                </span> </a></label
                             ><br />
                             <label class="checkbox">
                                 <input
@@ -342,12 +383,13 @@
                                     value="CONTACT_MAPS"
                                 />
                                 CONTACT_MAPS
+                                <a href="#" onclick="window.open(constructDocumentationUrl('ContactMaps'), '_blank'); return false;">
                                 <span
                                     class="icon has-tooltip"
                                     data-tooltip="Contact Maps"
                                 >
                                     <i class="fas fa-info-circle"></i>
-                                </span> </label
+                                </span> </a></label
                             ><br />
                             <label class="checkbox">
                                 <input
@@ -357,12 +399,13 @@
                                     value="LANDSCAPE"
                                 />
                                 LANDSCAPE
+                                <a href="#" onclick="window.open(constructDocumentationUrl('Landscape'), '_blank'); return false;">
                                 <span
                                     class="icon has-tooltip"
                                     data-tooltip="Energy Landscape"
                                 >
                                     <i class="fas fa-info-circle"></i>
-                                </span>
+                                </span></a>
                             </label>
                             <input
                                 type="text"
@@ -372,39 +415,41 @@
                                 placeholder="Precision of the Energy Landscape, (as a stride, 2 meaning one of two frames considered)"
                                 value="1"
                             /><br />
-                            <div class="select mt-2">
+                            <div class="select mt-2 is-arrowless">
                                 <label for="firstDimension"
                                     >First Dimension:</label
                                 >
                                 <select
                                     id="firstDimension"
                                     name="firstDimension"
+                                    style="appearance: none; -webkit-appearance: none; -moz-appearance: none; background-image: none;"
                                 >
                                     <option value="" disabled selected>
                                         Select First Dimension
                                     </option>
                                     <option value="RMSD">RMSD</option>
                                     <option value="eRMSD">eRMSD</option>
-                                    <option value="Torsion">Torsion</option>
+                                    <option value="Torsion" disabled>Torsion</option>
                                     <option value="Fraction of Contact Formed">
                                         Fraction of Contact Formed
                                     </option>
                                 </select>
                             </div>
-                            <div class="select mt-2">
+                            <div class="select mt-2 is-arrowless">
                                 <label for="secondDimension"
                                     >Second Dimension:</label
                                 >
                                 <select
                                     id="secondDimension"
                                     name="secondDimension"
+                                    style="appearance: none; -webkit-appearance: none; -moz-appearance: none; background-image: none;"
                                 >
                                     <option value="" disabled selected>
                                         Select Second Dimension
                                     </option>
                                     <option value="RMSD">RMSD</option>
                                     <option value="eRMSD">eRMSD</option>
-                                    <option value="Torsion">Torsion</option>
+                                    <option value="Torsion" disabled>Torsion</option>
                                     <option value="Fraction of Contact Formed">
                                         Fraction of Contact Formed
                                     </option>
@@ -412,7 +457,7 @@
                             </div>
                         </div>
                     </div>
-                    <div class="control">
+                    <div class="control mt-6">
                         <button
                             type="submit"
                             class="button is-primary"
@@ -449,7 +494,7 @@
                 <button
                     id="gotolinkbutton"
                     class="button is-info"
-                    onclick="window.location.href='https://plot_rna.louismeuret.com/retrieve-results?session_id=4f9973b06cd5475a96ca454fc03e8830'"
+                    onclick="window.location.href='https://plot_rna.louismeuret.com/retrieve-results?session_id=db307a7caab84ed1818650414c3759df'"
                 >
                     Go to already precomputed results
                 </button>
@@ -550,12 +595,24 @@
         <script src="https://cdn.jsdelivr.net/npm/xterm/lib/xterm.js"></script>
         <script src="https://cdn.jsdelivr.net/npm/socket.io-client/dist/socket.io.min.js"></script>
         <script>
+            
+            function constructDocumentationUrl(fragment) {
+                    const protocol = location.protocol === "https:" ? "https://" : "http://";
+                    const domain = document.domain;
+                    const port = location.port ? ":" + location.port : "";
+                    const baseUrl = `${protocol}${domain}${port}/documentation`;
+
+                    return `${baseUrl}#${fragment}`;
+                }
             document.addEventListener("DOMContentLoaded", function () {
                 document.getElementById("overlay").style.display = "none";
                 console.log("Loaded website");
                 const sessionId = "{{ session_id }}";
                 console.log("SESSION ID:");
                 console.log(sessionId);
+
+                
+
                 const socket = io.connect(
                     (location.protocol === "https:" ? "https://" : "http://") +
                         document.domain +

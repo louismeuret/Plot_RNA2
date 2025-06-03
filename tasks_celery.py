@@ -414,7 +414,7 @@ def generate_landscape_plot(self, native_pdb_path,traj_xtc_path, download_path, 
         """
         # Define a dictionary mapping calculation types to their functions
         calculation_functions = {
-            "Q": lambda: best_hummer_q(traj_load, native_load),
+            "Fraction of Contact Formed": lambda: best_hummer_q(traj_load, native_load),
             "RMSD": lambda: bb.rmsd(
                 native_pdb_path,
                 traj_xtc_path,
@@ -444,8 +444,8 @@ def generate_landscape_plot(self, native_pdb_path,traj_xtc_path, download_path, 
 
     try:
         traj_load = md.load_xtc(traj_xtc_path,native_pdb_path)
-        native_load = md.load_pdb(native_pdb_path)
-        print(parameters)
+        native_load = md.load(native_pdb_path)
+        #print(parameters)
         metrics_to_calculate = [parameters[1],parameters[2]]
 
         results = calculate_structural_metrics(
@@ -455,11 +455,11 @@ def generate_landscape_plot(self, native_pdb_path,traj_xtc_path, download_path, 
                 native_pdb_path,
                 traj_xtc_path
         )
-        print(parameters[0])
+        #print(parameters[0])
         stride = int(parameters[0])
         component1 = [results[parameters[1]][x] for x in range(0, len(traj_load), stride)]
         component2 = [results[parameters[2]][x] for x in range(0, len(traj_load), stride)]
-        print(results)
+        #print(results)
         #component1 = results[parameters[1]][::stride]
         #component2 = results[parameters[2]][::stride]
 
@@ -478,22 +478,26 @@ def generate_landscape_plot(self, native_pdb_path,traj_xtc_path, download_path, 
         size = 65
         selected_regions = []
 
-        dataframe, max_RMSD = df, max(df["RMSD"])
+        dataframe, max_RMSD, max_Q = df, max(df["RMSD"]), max(df['Q'])
         (
             probability_matrix,
             allframes_matrix,
             Qbin,
             RMSDbin,
-        ) = energy_3dplot.make_matrix_probability(dataframe, size, max_RMSD)
+        ) = energy_3dplot.make_matrix_probability(dataframe, size, max_RMSD, max_Q)
         energy_matrix, real_values = energy_3dplot.make_matrix_energy(
             probability_matrix, max_RMSD, size
         )
         fig = plot_landscapes_3D(
-            energy_matrix, Qbin, RMSDbin, max_RMSD, real_values, selected_regions
+            energy_matrix, Qbin, RMSDbin, max_RMSD, max_Q,  real_values, selected_regions, metrics_to_calculate
+        )
+        fig2 = plot_landscapes_2D(
+            energy_matrix, Qbin, RMSDbin, max_RMSD, max_Q, real_values, selected_regions, metrics_to_calculate
         )
         path_landscape_3d = f"static/{session_id}/download_plot/LANDSCAPE/landscape.html"
         fig.write_html(path_landscape_3d)
         path_landscape = f"static/{session_id}/download_plot/LANDSCAPE/landscape.png"
+        """
         energy_3dplot.energy_plot(
             energy_matrix,
             Qbin,
@@ -502,8 +506,11 @@ def generate_landscape_plot(self, native_pdb_path,traj_xtc_path, download_path, 
             real_values,
             selected_regions,
             path_landscape,
+            metrics_to_calculate
         )
+        """
         plotly_data = plotly_to_json(fig)
-        return plotly_data
+        plotly_data2 = plotly_to_json(fig2)
+        return [plotly_data, plotly_data2]
     except Exception as exc:
         self.retry(exc=exc, countdown=60)
