@@ -1,4 +1,22 @@
-import eventlet
+import os
+import sys
+
+# Set environment variables to prevent conflicts before importing eventlet
+os.environ['EVENTLET_NO_GREENDNS'] = '1'
+
+# Try eventlet import with better error handling
+try:
+    import eventlet
+    # Conservative monkey patching to avoid conflicts
+    eventlet.monkey_patch(socket=True, dns=False, time=False, select=True, thread=False, os=False)
+    EVENTLET_AVAILABLE = True
+except ImportError as e:
+    print(f"Warning: eventlet import failed: {e}")
+    EVENTLET_AVAILABLE = False
+except Exception as e:
+    print(f"Warning: eventlet configuration failed: {e}")
+    EVENTLET_AVAILABLE = False
+
 import time
 from flask import (
     Flask,
@@ -47,12 +65,143 @@ import zipfile
 from tasks_celery import *
 from celery.result import AsyncResult
 import threading
+import logging
+from dataclasses import dataclass
+from typing import Dict, List, Optional
+from datetime import datetime
 
 app = Flask(__name__)
 app.secret_key = "pi"
 app.debug = True
-socketio = SocketIO(app, logger=True, engineio_logger=True, async_mode='eventlet')
 
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
+
+@dataclass
+class CalculationRequirement:
+    """Represents a calculation requirement for a plot"""
+    calculation_type: str
+    estimated_time: float  # in seconds
+    memory_requirement: float  # in MB
+    cpu_intensive: bool
+    dependencies: List[str]
+    
+class CalculationPlanner:
+    """Plans and manages calculation resources"""
+    
+    CALCULATION_SPECS = {
+        'RMSD': CalculationRequirement('rmsd', 30.0, 100, True, []),
+        'ERMSD': CalculationRequirement('ermsd', 45.0, 150, True, []),
+        'TORSION': CalculationRequirement('torsion', 60.0, 200, True, []),
+        'SEC_STRUCTURE': CalculationRequirement('annotate', 120.0, 300, True, []),
+        'DOTBRACKET': CalculationRequirement('annotate', 120.0, 300, True, []),
+        'ARC': CalculationRequirement('annotate', 130.0, 350, True, []),
+        'CONTACT_MAPS': CalculationRequirement('annotate', 180.0, 500, True, []),
+        'ANNOTATE': CalculationRequirement('annotate', 120.0, 300, True, []),
+        'DS_MOTIF': CalculationRequirement('motif', 90.0, 250, False, []),
+        'SS_MOTIF': CalculationRequirement('motif', 90.0, 250, False, []),
+        'JCOUPLING': CalculationRequirement('jcoupling', 75.0, 200, True, []),
+        'ESCORE': CalculationRequirement('escore', 60.0, 150, False, []),
+        'LANDSCAPE': CalculationRequirement('landscape', 300.0, 800, True, ['RMSD']),
+        'BASE_PAIRING': CalculationRequirement('base_pairing', 150.0, 400, True, [])
+    }
+    
+    def __init__(self, session_id: str):
+        self.session_id = session_id
+        self.logger = logging.getLogger(f'{__name__}.{session_id}')
+        
+    def plan_calculations(self, selected_plots: List[str]) -> Dict[str, CalculationRequirement]:
+        """Plan and log all calculations needed"""
+        self.logger.info(f"Planning calculations for plots: {selected_plots}")
+        
+        planned_calculations = {}
+        total_time = 0
+        total_memory = 0
+        
+        # Group calculations by type to avoid duplicates
+        calculation_groups = {}
+        
+        for plot in selected_plots:
+            if plot in self.CALCULATION_SPECS:
+                spec = self.CALCULATION_SPECS[plot]
+                calc_type = spec.calculation_type
+                
+                if calc_type not in calculation_groups:
+                    calculation_groups[calc_type] = {
+                        'plots': [plot],
+                        'spec': spec
+                    }
+                else:
+                    calculation_groups[calc_type]['plots'].append(plot)
+                    
+                planned_calculations[plot] = spec
+                total_time += spec.estimated_time
+                total_memory = max(total_memory, spec.memory_requirement)
+        
+        self.logger.info(f"Calculation plan:")
+        for calc_type, group in calculation_groups.items():
+            self.logger.info(f"  {calc_type}: {group['plots']} - {group['spec'].estimated_time}s, {group['spec'].memory_requirement}MB")
+            
+        self.logger.info(f"Total estimated time: {total_time}s ({total_time/60:.1f}min)")
+        self.logger.info(f"Peak memory requirement: {total_memory}MB")
+        
+        return planned_calculations
+        
+    def optimize_calculation_order(self, planned_calculations: Dict[str, CalculationRequirement]) -> List[str]:
+        """Optimize the order of calculations for efficiency"""
+        # Group by calculation type to share results
+        calc_groups = {}
+        for plot, spec in planned_calculations.items():
+            calc_type = spec.calculation_type
+            if calc_type not in calc_groups:
+                calc_groups[calc_type] = []
+            calc_groups[calc_type].append(plot)
+            
+        # Order: CPU-intensive first, then memory-intensive
+        ordered_plots = []
+        for calc_type, plots in calc_groups.items():
+            ordered_plots.extend(plots)
+            
+        self.logger.info(f"Optimized calculation order: {ordered_plots}")
+        return ordered_plots
+socketio = SocketIO(
+    app,
+    logger=True,
+    engineio_logger=True,
+    async_mode='eventlet' if EVENTLET_AVAILABLE else 'threading',
+    cors_allowed_origins=[
+        "https://arny-plotter.rpbs.univ-paris-diderot.fr",
+        "http://arny-plotter.rpbs.univ-paris-diderot.fr",
+        "http://localhost:4242",
+        "http://127.0.0.1:4242",
+        "http://172.27.7.130:4242"
+    ],
+
+    cors_credentials=True,     # Allow credentials in CORS requests
+    allow_upgrades=True,       # Allow protocol upgrades
+    transports=['websocket', 'polling'],  # Support both transport methods
+
+    # Additional proxy configurations
+    ping_timeout=60,           # Increase timeout for proxy delays
+    ping_interval=25,          # Regular ping to keep connection alive
+
+    # Handle proxy headers
+    engineio_options={
+        'ping_timeout': 60,
+        'ping_interval': 25,
+        'upgrade_timeout': 30,
+        'max_http_buffer_size': 1000000,
+        # Additional engineio CORS options
+        'cors_allowed_origins': [
+            "https://arny-plotter.rpbs.univ-paris-diderot.fr",
+            "http://arny-plotter.rpbs.univ-paris-diderot.fr",
+            "http://localhost:4242",
+            "http://127.0.0.1:4242",
+            "http://172.27.7.130:4242"
+        ],
+        'cors_credentials': True,
+    }
+)
 redis_conn = Redis()
 plot_queue = Queue('plot_queue', connection=redis_conn)
 
@@ -392,69 +541,88 @@ def view_trajectory(session_id, native_pdb, traj_xtc):
 
 
     socketio.emit('update_progress', {"progress": 40, "message": "Trajectory loaded."}, to=session_id)
-    socketio.sleep(0.1)  # Ensure the message is sent
+    socketio.sleep(0.1)
+    
+    # Plan calculations with proper resource management
+    planner = CalculationPlanner(session_id)
+    planned_calculations = planner.plan_calculations(selected_plots)
+    optimized_order = planner.optimize_calculation_order(planned_calculations)
+    
+    socketio.emit('update_progress', {"progress": 45, "message": "Calculations planned and optimized."}, to=session_id)
+    socketio.sleep(0.1)
+    
     plot_data = []
-    for plot in selected_plots:
+    for plot in optimized_order:
         files_path = os.path.join(download_path, plot)
         plot_dir = os.path.join(download_plot, plot)
         os.makedirs(files_path, exist_ok=True)
         os.makedirs(plot_dir, exist_ok=True)
+        
+        logger.info(f"Starting calculation for {plot} - estimated time: {planned_calculations[plot].estimated_time}s")
 
-        if plot == "RMSD":
-            job = generate_rmsd_plot.apply_async(args=[native_pdb_path, traj_xtc_path, files_path, plot_dir, session_id])
-            plot_data.append([plot, "scatter2", job.id])
-
-        elif plot == "ERMSD":
-            job = generate_ermsd_plot.apply_async(args=[native_pdb_path, traj_xtc_path, files_path, plot_dir, session_id])
-            plot_data.append([plot, "scatter", job.id])
-
-        elif plot == "TORSION":
-            job = generate_torsion_plot.apply_async(args=[native_pdb_path, traj_xtc_path, files_path, plot_dir, session_id])
-            plot_data.append([plot, "torsion", job.id])
-
-        elif plot == "SEC_STRUCTURE":
-            job = generate_sec_structure_plot.apply_async(args=[native_pdb_path, traj_xtc_path, files_path, plot_dir, session_id])
-            plot_data.append([plot, "bar", job.id])
-
-        elif plot == "DOTBRACKET":
-            job = generate_dotbracket_plot.apply_async(args=[native_pdb_path,traj_xtc_path, files_path, plot_dir, session_id])
-            plot_data.append([plot, "dotbracket", job.id])
-
-        elif plot == "ARC":
-            job = generate_arc_plot.apply_async(args=[native_pdb_path, traj_xtc_path, files_path, plot_dir, session_id])
-            plot_data.append([plot, "arc", job.id])
-
-        elif plot == "CONTACT_MAPS":
-            job = generate_contact_map_plot.apply_async(args=[native_pdb_path, traj_xtc_path, files_path, plot_dir, generate_data_path, session_id])
-            plot_data.append([plot, "CONTACT_MAPS", job.id])
-
-        elif plot == "ANNOTATE":
-            job = generate_annotate_plot.apply_async(args=[native_pdb_path, traj_xtc_path, files_path, plot_dir, session_id])
-            plot_data.append([plot, "annotate", job.id])
-
-        elif plot == "DS_MOTIF":
-            job = generate_ds_motif_plot.apply_async(args=[native_pdb_path, traj_xtc_path, files_path, plot_dir, session_id])
-            plot_data.append([plot, "motif", job.id])
-
-        elif plot == "SS_MOTIF":
-            job = generate_ss_motif_plot.apply_async(args=[native_pdb_path, traj_xtc_path, files_path, plot_dir, session_id])
-            plot_data.append([plot, "motif", job.id])
-
-        elif plot == "JCOUPLING":
-            job = generate_jcoupling_plot.apply_async(args=[native_pdb_path, traj_xtc_path, files_path, plot_dir, session_id])
-            plot_data.append([plot, "scatter", job.id])
-
-        elif plot == "ESCORE":
-            job = generate_escore_plot.apply_async(args=[native_pdb_path, traj_xtc_path, files_path, plot_dir, session_id])
-            plot_data.append([plot, "scatter", job.id])
-
-        elif plot == "LANDSCAPE":
-            job = generate_landscape_plot.apply_async(args=[native_pdb_path, traj_xtc_path, files_path, plot_dir, session_id, [session.get("landscape_stride", 1),session.get("landscape_first_component", 1),session.get("landscape_second_component", 1)], generate_data_path])
-            plot_data.append([plot, "surface", job.id])
-
-        elif plot == "BASE_PAIRING":
-            job = generate_2Dpairing_plot.apply_async(args=[native_pdb_path, traj_xtc_path, files_path, plot_dir, session_id])
-            plot_data.append([plot, "2Dpairing", job.id])
+        try:
+            job = None
+            plot_style = "default"
+            
+            if plot == "RMSD":
+                job = generate_rmsd_plot.apply_async(args=[native_pdb_path, traj_xtc_path, files_path, plot_dir, session_id])
+                plot_style = "scatter2"
+            elif plot == "ERMSD":
+                job = generate_ermsd_plot.apply_async(args=[native_pdb_path, traj_xtc_path, files_path, plot_dir, session_id])
+                plot_style = "scatter"
+            elif plot == "TORSION":
+                torsion_residue = session.get("torsionResidue", 0)
+                job = generate_torsion_plot.apply_async(args=[native_pdb_path, traj_xtc_path, files_path, plot_dir, session_id, torsion_residue])
+                plot_style = "torsion"
+            elif plot == "SEC_STRUCTURE":
+                job = generate_sec_structure_plot.apply_async(args=[native_pdb_path, traj_xtc_path, files_path, plot_dir, session_id])
+                plot_style = "bar"
+            elif plot == "DOTBRACKET":
+                job = generate_dotbracket_plot.apply_async(args=[native_pdb_path, traj_xtc_path, files_path, plot_dir, session_id])
+                plot_style = "dotbracket"
+            elif plot == "ARC":
+                job = generate_arc_plot.apply_async(args=[native_pdb_path, traj_xtc_path, files_path, plot_dir, session_id])
+                plot_style = "arc"
+            elif plot == "CONTACT_MAPS":
+                job = generate_contact_map_plot.apply_async(args=[native_pdb_path, traj_xtc_path, files_path, plot_dir, generate_data_path, session_id])
+                plot_style = "CONTACT_MAPS"
+            elif plot == "ANNOTATE":
+                job = generate_annotate_plot.apply_async(args=[native_pdb_path, traj_xtc_path, files_path, plot_dir, session_id])
+                plot_style = "annotate"
+            elif plot == "DS_MOTIF":
+                job = generate_ds_motif_plot.apply_async(args=[native_pdb_path, traj_xtc_path, files_path, plot_dir, session_id])
+                plot_style = "motif"
+            elif plot == "SS_MOTIF":
+                job = generate_ss_motif_plot.apply_async(args=[native_pdb_path, traj_xtc_path, files_path, plot_dir, session_id])
+                plot_style = "motif"
+            elif plot == "JCOUPLING":
+                job = generate_jcoupling_plot.apply_async(args=[native_pdb_path, traj_xtc_path, files_path, plot_dir, session_id])
+                plot_style = "scatter"
+            elif plot == "ESCORE":
+                job = generate_escore_plot.apply_async(args=[native_pdb_path, traj_xtc_path, files_path, plot_dir, session_id])
+                plot_style = "scatter"
+            elif plot == "LANDSCAPE":
+                landscape_params = [
+                    session.get("landscape_stride", 1),
+                    session.get("landscape_first_component", 1),
+                    session.get("landscape_second_component", 1)
+                ]
+                job = generate_landscape_plot.apply_async(args=[native_pdb_path, traj_xtc_path, files_path, plot_dir, session_id, landscape_params, generate_data_path])
+                plot_style = "surface"
+            elif plot == "BASE_PAIRING":
+                job = generate_2Dpairing_plot.apply_async(args=[native_pdb_path, traj_xtc_path, files_path, plot_dir, session_id])
+                plot_style = "2Dpairing"
+            else:
+                logger.warning(f"Unknown plot type: {plot}")
+                continue
+                
+            if job:
+                plot_data.append([plot, plot_style, job.id])
+                logger.info(f"Enqueued {plot} calculation with job ID: {job.id}")
+                
+        except Exception as e:
+            logger.error(f"Failed to enqueue {plot} calculation: {str(e)}")
+            socketio.emit('update_progress', {"progress": 60, "message": f"Error enqueueing {plot}: {str(e)}"}, to=session_id)
 
         socketio.emit('update_progress', {"progress": 60, "message": f"{plot} plot enqueued."}, to=session_id)
         socketio.sleep(0.1)  # Ensure the message is sent
@@ -462,18 +630,39 @@ def view_trajectory(session_id, native_pdb, traj_xtc):
     socketio.emit('update_progress', {"progress": 70, "message": "Waiting for plot jobs to complete..."}, to=session_id)
     socketio.sleep(0.1)  # Ensure the message is sent
 
-    # Wait for and process results
+    # Wait for and process results with better error handling
     completed_plot_data = []
+    total_jobs = len(plot_data)
+    completed_jobs = 0
+    
     for plot_type, plot_style, job_id in plot_data:
-        job = app2.AsyncResult(job_id)
-        while not job.ready():
-            time.sleep(0.1)
+        try:
+            job = app2.AsyncResult(job_id)
+            start_time = time.time()
+            
+            # Wait with timeout and progress updates
+            while not job.ready():
+                elapsed = time.time() - start_time
+                if elapsed > 600:  # 10 minute timeout
+                    logger.error(f"Timeout waiting for {plot_type} calculation")
+                    socketio.emit('update_progress', {"progress": 80, "message": f"Timeout: {plot_type} calculation taking too long"}, to=session_id)
+                    break
+                time.sleep(0.1)
 
-        if job.successful():
-            completed_plot_data.append([plot_type, plot_style, job.result])
-            socketio.emit('update_progress', {"progress": 80, "message": f"{plot_type} plot completed."}, to=session_id)
-        else:
-            socketio.emit('update_progress', {"progress": 80, "message": f"Error with {plot_type} plot."}, to=session_id)
+            if job.successful():
+                completed_plot_data.append([plot_type, plot_style, job.result])
+                completed_jobs += 1
+                progress = 70 + (completed_jobs / total_jobs) * 20
+                logger.info(f"Completed {plot_type} calculation successfully")
+                socketio.emit('update_progress', {"progress": progress, "message": f"{plot_type} plot completed ({completed_jobs}/{total_jobs})."}, to=session_id)
+            else:
+                error_msg = str(job.result) if job.result else "Unknown error"
+                logger.error(f"Error in {plot_type} calculation: {error_msg}")
+                socketio.emit('update_progress', {"progress": 80, "message": f"Error with {plot_type} plot: {error_msg}"}, to=session_id)
+                
+        except Exception as e:
+            logger.error(f"Exception processing {plot_type} result: {str(e)}")
+            socketio.emit('update_progress', {"progress": 80, "message": f"Exception with {plot_type}: {str(e)}"}, to=session_id)
 
     pickle_file_path = os.path.join(directory_path, "plot_data.pkl")
     print(f"Dir Path = {directory_path}")
@@ -590,7 +779,7 @@ def save_all_plots(df, directory):
     return plot_filenames
 
 if __name__ == "__main__":
-    eventlet.monkey_patch()
+    # eventlet.monkey_patch() already done at top
     with app.app_context():
         # app.run(debug=True)
         socketio.run(app)

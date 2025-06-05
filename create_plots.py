@@ -12,11 +12,32 @@ from collections import defaultdict
 import MDAnalysis as mda
 import generate_contact_maps
 import logging
+from typing import Optional, List, Dict, Tuple, Any
+import traceback
+from functools import wraps
 
 # Configure logging
-logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
 
-def plot_ermsd(ermsd):
+def handle_plot_errors(func):
+    """Decorator to handle common plotting errors"""
+    @wraps(func)
+    def wrapper(*args, **kwargs):
+        func_name = func.__name__
+        try:
+            logger.info(f"Starting {func_name}")
+            result = func(*args, **kwargs)
+            logger.info(f"Completed {func_name} successfully")
+            return result
+        except Exception as e:
+            logger.error(f"Error in {func_name}: {str(e)}")
+            logger.error(f"Traceback: {traceback.format_exc()}")
+            raise
+    return wrapper
+
+@handle_plot_errors
+def plot_ermsd(ermsd: np.ndarray) -> go.Figure:
     fig = go.Figure(
         data=go.Scattergl(y=ermsd, mode="markers", legendrank=1),
         layout=dict(
@@ -28,7 +49,8 @@ def plot_ermsd(ermsd):
     )
     return fig
 
-def plot_rmsd(rmsd):
+@handle_plot_errors
+def plot_rmsd(rmsd: np.ndarray) -> go.Figure:
     fig = go.Figure(
         data=go.Scattergl(y=rmsd, mode="markers", legendrank=1),
         layout=dict(
@@ -40,7 +62,8 @@ def plot_rmsd(rmsd):
     )
     return fig
 
-def plot_dotbracket(dotbracket_data):
+@handle_plot_errors
+def plot_dotbracket(dotbracket_data: List[str]) -> go.Figure:
     reverse_mapping = {}
     for frame, dotbracket in enumerate(dotbracket_data, start=1):
         reverse_mapping.setdefault(dotbracket, []).append(frame)
@@ -103,13 +126,17 @@ def plot_dotbracket(dotbracket_data):
     fig = go.Figure(data=traces, layout=layout)
     return fig
 
-def plot_torsion(angles, res, torsionResidue):
-    if torsionResidue.isdigit():
+@handle_plot_errors
+def plot_torsion(angles: np.ndarray, res: List[str], torsionResidue: int) -> go.Figure:
+    if isinstance(torsionResidue, str) and torsionResidue.isdigit():
         residue_index = int(torsionResidue)
+    elif isinstance(torsionResidue, int):
+        residue_index = torsionResidue
     else:
-        residue_index = res.index(torsionResidue)
+        residue_index = res.index(str(torsionResidue)) if str(torsionResidue) in res else 0
 
-    residue_index = 2
+    # Ensure residue_index is within bounds
+    residue_index = min(residue_index, len(res) - 1) if len(res) > 0 else 2
     specific_residue_angles = angles[:, residue_index, :]  # All frames for residue 2
     angles_names = ["alpha", "beta", "gamma", "delta", "epsilon", "zeta", "chi"]
 
@@ -180,7 +207,8 @@ def plot_torsion(angles, res, torsionResidue):
 
     return fig
 
-def plot_rna_contact_map(base_pairs_df, sequence, output_file=None, frame_number=None):
+@handle_plot_errors
+def plot_rna_contact_map(base_pairs_df: pd.DataFrame, sequence: List[str], output_file: Optional[str] = None, frame_number: Optional[int] = None) -> go.Figure:
     """
     Create an interactive contact map visualization for RNA base pairs
     using Plotly with Leontis-Westhof classification

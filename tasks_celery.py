@@ -13,9 +13,40 @@ from itertools import combinations
 import energy_3dplot
 from plotly.io import to_json
 import pickle
+import logging
+from functools import wraps
+from typing import Optional, Dict, Any
+import traceback
+from celery.exceptions import Retry
+
+# Configure logging for Celery tasks
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
 
 # Configure Celery
 app2 = Celery('tasks')
+
+def log_task_execution(func):
+    """Decorator to log task execution and handle errors"""
+    @wraps(func)
+    def wrapper(self, *args, **kwargs):
+        task_name = func.__name__
+        session_id = args[-1] if args else 'unknown'
+        
+        logger.info(f"Starting task {task_name} for session {session_id}")
+        start_time = time.time()
+        
+        try:
+            result = func(self, *args, **kwargs)
+            execution_time = time.time() - start_time
+            logger.info(f"Completed task {task_name} for session {session_id} in {execution_time:.2f}s")
+            return result
+        except Exception as exc:
+            execution_time = time.time() - start_time
+            logger.error(f"Task {task_name} failed for session {session_id} after {execution_time:.2f}s: {str(exc)}")
+            logger.error(f"Traceback: {traceback.format_exc()}")
+            raise
+    return wrapper
 
 # Celery configuration
 app2.conf.update(
@@ -96,6 +127,7 @@ def generate_contact_maps_plot(self, native_pdb, traj_xtc, download_path, plot_p
         self.retry(exc=exc, countdown=60)  # Retry after 60 seconds
 
 @app2.task(bind=True, max_retries=3)
+@log_task_execution
 def generate_rmsd_plot(self, native_pdb_path, traj_xtc_path, download_path, plot_path, session_id):
     try:
         start_time = time.time()
@@ -133,6 +165,7 @@ def generate_rmsd_plot(self, native_pdb_path, traj_xtc_path, download_path, plot
         self.retry(exc=exc, countdown=60)
 
 @app2.task(bind=True, max_retries=3)
+@log_task_execution
 def generate_ermsd_plot(self, native_pdb_path, traj_xtc_path, download_path, plot_path, session_id):
     try:
         start_time = time.time()
@@ -165,16 +198,29 @@ def generate_ermsd_plot(self, native_pdb_path, traj_xtc_path, download_path, plo
         self.retry(exc=exc, countdown=60)
 
 @app2.task(bind=True, max_retries=3)
-def generate_torsion_plot(self, traj_xtc_path, native_pdb_path, download_path, plot_path, session_id):
+@log_task_execution
+def generate_torsion_plot(self, native_pdb_path, traj_xtc_path, download_path, plot_path, session_id, torsion_residue=0):
     try:
         angles, res = bb.backbone_angles(traj_xtc_path, topology=native_pdb_path)
-        print(res)
-        fig = plot_torsion(angles, res, session["torsionResidue"])
+        logger.info(f"Calculated torsion angles for {len(res)} residues")
+        fig = plot_torsion(angles, res, torsion_residue)
         fig.write_html(os.path.join(plot_path, "torsion_plot.html"))
+        
+        # Save data
+        angles_df = pd.DataFrame(angles.reshape(-1, angles.shape[-1]), 
+                               columns=["alpha", "beta", "gamma", "delta", "epsilon", "zeta", "chi"])
+        angles_df.to_csv(os.path.join(download_path, "torsion_angles.csv"), index=False)
+        
         plotly_data = plotly_to_json(fig)
         return plotly_data
     except Exception as exc:
-        self.retry(exc=exc, countdown=60)
+        logger.error(f"Torsion calculation failed: {str(exc)}")
+        if self.request.retries < self.max_retries:
+            logger.info(f"Retrying torsion calculation (attempt {self.request.retries + 1}/{self.max_retries})")
+            raise self.retry(exc=exc, countdown=60)
+        else:
+            logger.error(f"Torsion calculation failed permanently after {self.max_retries} retries")
+            raise exc
 
 @app2.task(bind=True, max_retries=3)
 def generate_sec_structure_plot(self, native_pdb_path,traj_xtc_path, download_path, plot_path, session_id):
@@ -372,7 +418,7 @@ def generate_contact_map_plot(self, native_pdb_path, traj_xtc_path, download_pat
         return frames_dict, sequence
 
     # Process barnaba results into our format
-    stackings, pairings, res = stackings, pairings, res = bb.annotate(traj_xtc_path, topology=native_pdb_path)
+    stackings, pairings, res = bb.annotate(traj_xtc_path, topology=native_pdb_path)
     frames_dict, sequence = process_barnaba_pairings(pairings, res)
     print(len(frames_dict))
     print(f"RNA length: {len(sequence)} nucleotides")
