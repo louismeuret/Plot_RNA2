@@ -147,7 +147,7 @@ select {
                                 class="input"
                                 id="nativePdb"
                                 name="nativePdb"
-                                accept=".pdb,.gro"
+                                accept=".pdb,.gro,.psf,.top,.prmtop,.mol2,.xyz"
                             />
                         </div>
                     </div>
@@ -268,65 +268,91 @@ select {
                             </a>
                                 </label
                             ><br />
-                            <div style="display: none">
-                                <label class="checkbox">
-                                    <input
-                                        type="checkbox"
-                                        id="torsion"
-                                        name="torsion"
-                                        value="TORSION"
-                                    />
-                                    TORSION
-                                    <a href="#" onclick="window.open(constructDocumentationUrl('Torsion'), '_blank'); return false;">
-                                        <span
-                                            class="icon has-tooltip"
-                                            data-tooltip="Plot all angles values for a specific residue"
-                                        >
-                                            <i class="fas fa-info-circle"></i>
-                                        </span>
-                                    </a>
-                                </label>
-                                <div class="select mt-2">
-                                    <select
-                                        id="torsionAngle1"
-                                        name="torsionAngle1"
-                                        style="appearance: none; -webkit-appearance: none; -moz-appearance: none;"
-                                    >
-                                        <option value="" disabled selected>
-                                            Select first torsion angle
-                                        </option>
-                                        <option value="alpha">Alpha</option>
-                                        <option value="beta">Beta</option>
-                                        <option value="gamma">Gamma</option>
-                                        <option value="delta">Delta</option>
-                                        <option value="epsilon">Epsilon</option>
-                                        <option value="zeta">Zeta</option>
-                                    </select>
-                                </div>
-                                <div class="select">
-                                    <select
-                                        id="torsionAngle2"
-                                        name="torsionAngle2"
-                                    >
-                                        <option value="" disabled selected>
-                                            Select second torsion angle
-                                        </option>
-                                        <option value="alpha">Alpha</option>
-                                        <option value="beta">Beta</option>
-                                        <option value="gamma">Gamma</option>
-                                        <option value="delta">Delta</option>
-                                        <option value="epsilon">Epsilon</option>
-                                        <option value="zeta">Zeta</option>
-                                    </select>
-                                </div>
+                            <label class="checkbox">
                                 <input
-                                    type="text"
-                                    class="input mt-2"
-                                    id="torsionResidue"
-                                    name="torsionResidue"
-                                    placeholder="Residue name or index"
-                                /><br />
-                            </div>
+                                    type="checkbox"
+                                    id="torsion"
+                                    name="torsion"
+                                    value="TORSION"
+                                />
+                                TORSION
+                                <a href="#" onclick="window.open(constructDocumentationUrl('Torsion'), '_blank'); return false;">
+                                    <span
+                                        class="icon has-tooltip"
+                                        data-tooltip="Plot torsion angles for selected residues"
+                                    >
+                                        <i class="fas fa-info-circle"></i>
+                                    </span>
+                                </a>
+                            </label>
+                            <div id="torsionOptions" style="display: none; margin-left: 20px; padding: 10px; border: 1px solid #ddd; border-radius: 4px; margin-top: 10px;">
+                                <div class="field">
+                                    <label class="label">Torsion Mode:</label>
+                                    <div class="control">
+                                        <label class="radio">
+                                            <input type="radio" name="torsionMode" value="single" checked>
+                                            Single Residue
+                                        </label>
+                                        <label class="radio">
+                                            <input type="radio" name="torsionMode" value="multiple">
+                                            Multiple Residues
+                                        </label>
+                                        <label class="radio">
+                                            <input type="radio" name="torsionMode" value="all">
+                                            All Residues
+                                        </label>
+                                    </div>
+                                </div>
+                                
+                                <div id="singleResidueOptions">
+                                    <div class="field">
+                                        <label class="label">Residue:</label>
+                                        <input
+                                            type="text"
+                                            class="input"
+                                            id="torsionResidue"
+                                            name="torsionResidue"
+                                            placeholder="Residue index (e.g., 0, 1, 2...)"
+                                        />
+                                    </div>
+                                </div>
+                                
+                                <div id="multipleResidueOptions" style="display: none;">
+                                    <div class="field">
+                                        <label class="label">Select Residues:</label>
+                                        <div id="residueCheckboxes" class="content">
+                                            <p><em>Upload topology file to see available residues</em></p>
+                                        </div>
+                                    </div>
+                                    
+                                    <div class="field">
+                                        <label class="label">Select Torsion Angles:</label>
+                                        <div id="angleCheckboxes" class="content">
+                                            <label class="checkbox">
+                                                <input type="checkbox" name="torsionAngles" value="alpha"> Alpha
+                                            </label>
+                                            <label class="checkbox">
+                                                <input type="checkbox" name="torsionAngles" value="beta"> Beta
+                                            </label>
+                                            <label class="checkbox">
+                                                <input type="checkbox" name="torsionAngles" value="gamma"> Gamma
+                                            </label>
+                                            <label class="checkbox">
+                                                <input type="checkbox" name="torsionAngles" value="delta"> Delta
+                                            </label>
+                                            <label class="checkbox">
+                                                <input type="checkbox" name="torsionAngles" value="epsilon"> Epsilon
+                                            </label>
+                                            <label class="checkbox">
+                                                <input type="checkbox" name="torsionAngles" value="zeta"> Zeta
+                                            </label>
+                                            <label class="checkbox">
+                                                <input type="checkbox" name="torsionAngles" value="chi"> Chi
+                                            </label>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div><br />
                             <label class="checkbox">
                                 <input
                                     type="checkbox"
@@ -743,8 +769,116 @@ select {
                 // Initialize the progress bar and set up socket updates
                 initializeProgressBar();
                 listenForUpdates();
+                
+                // Initialize torsion angle functionality
+                initializeTorsionControls();
             });
         </script>
+        
+        <script>
+            function initializeTorsionControls() {
+                const torsionCheckbox = document.getElementById('torsion');
+                const torsionOptions = document.getElementById('torsionOptions');
+                const torsionModeRadios = document.querySelectorAll('input[name="torsionMode"]');
+                const singleOptions = document.getElementById('singleResidueOptions');
+                const multipleOptions = document.getElementById('multipleResidueOptions');
+                const nativePdbInput = document.getElementById('nativePdb');
+                
+                // Show/hide torsion options when checkbox is clicked
+                torsionCheckbox.addEventListener('change', function() {
+                    torsionOptions.style.display = this.checked ? 'block' : 'none';
+                });
+                
+                // Handle torsion mode changes
+                torsionModeRadios.forEach(radio => {
+                    radio.addEventListener('change', function() {
+                        if (this.value === 'single') {
+                            singleOptions.style.display = 'block';
+                            multipleOptions.style.display = 'none';
+                        } else if (this.value === 'multiple') {
+                            singleOptions.style.display = 'none';
+                            multipleOptions.style.display = 'block';
+                        } else if (this.value === 'all') {
+                            singleOptions.style.display = 'none';
+                            multipleOptions.style.display = 'none';
+                        }
+                    });
+                });
+                
+                // Parse topology file when uploaded
+                nativePdbInput.addEventListener('change', function() {
+                    if (this.files.length > 0) {
+                        parseTopologyFile(this.files[0]);
+                    }
+                });
+            }
+            
+            function parseTopologyFile(file) {
+                const sessionId = "{{ session_id }}";
+                const formData = new FormData();
+                formData.append('topologyFile', file);
+                formData.append('session_id', sessionId);
+                
+                fetch('/parse-topology', {
+                    method: 'POST',
+                    body: formData
+                })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        updateResidueOptions(data.residues);
+                        console.log('Topology parsed successfully:', data);
+                    } else {
+                        console.error('Error parsing topology:', data.error);
+                        updateResidueOptions([]);
+                    }
+                })
+                .catch(error => {
+                    console.error('Network error:', error);
+                    updateResidueOptions([]);
+                });
+            }
+            
+            function updateResidueOptions(residues) {
+                const residueCheckboxes = document.getElementById('residueCheckboxes');
+                
+                if (residues.length === 0) {
+                    residueCheckboxes.innerHTML = '<p><em>Failed to parse topology file or no residues found</em></p>';
+                    return;
+                }
+                
+                let html = '<div style="max-height: 200px; overflow-y: auto;">';
+                
+                // Add "Select All" option
+                html += `
+                    <label class="checkbox">
+                        <input type="checkbox" id="selectAllResidues" onchange="toggleAllResidues(this)">
+                        <strong>Select All</strong>
+                    </label><br>
+                `;
+                
+                // Add individual residue options
+                residues.forEach((residue, index) => {
+                    html += `
+                        <label class="checkbox">
+                            <input type="checkbox" name="torsionResidues" value="${residue.index}">
+                            ${residue.full_name} (Index: ${residue.index})
+                        </label><br>
+                    `;
+                });
+                
+                html += '</div>';
+                residueCheckboxes.innerHTML = html;
+            }
+            
+            function toggleAllResidues(selectAllCheckbox) {
+                const residueCheckboxes = document.querySelectorAll('input[name="torsionResidues"]');
+                residueCheckboxes.forEach(checkbox => {
+                    checkbox.checked = selectAllCheckbox.checked;
+                });
+            }
+        </script>
+        
         <div style="height: 20px"></div>
     </body>
 </html>

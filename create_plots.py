@@ -152,18 +152,21 @@ def plot_torsion(angles: np.ndarray, res: List[str], torsionResidue: int) -> go.
     ]
 
     # Create subplots with 7 rows and 2 columns
-    names = [
-        f"Angle: {angles_names[i]} - {plot_type}"
-        for i in range(7)
-        for plot_type in ["Line Plot", "Histogram"]
-    ]
+    subplot_titles = []
+    for i in range(7):
+        subplot_titles.extend([
+            f"{angles_names[i]} - Time Series",
+            f"{angles_names[i]} - Distribution"
+        ])
+    
     fig = make_subplots(
         rows=7,
         cols=2,
         shared_xaxes=False,
-        subplot_titles=names,
-        horizontal_spacing=0.1,  # Adjust spacing between plots
-        vertical_spacing=0.1,
+        subplot_titles=subplot_titles,
+        horizontal_spacing=0.15,  # Increase spacing between columns
+        vertical_spacing=0.08,    # Reduce vertical spacing
+        specs=[[{"secondary_y": False}, {"secondary_y": False}] for _ in range(7)]
     )
 
     # Add traces for each angle (line plots in the first column and histograms in the second column)
@@ -173,25 +176,29 @@ def plot_torsion(angles: np.ndarray, res: List[str], torsionResidue: int) -> go.
         valid_indices = ~np.isnan(y_values)
         color = colors[i]
 
-        # Line plot
+        # Line plot (time series)
         fig.add_trace(
             go.Scattergl(
                 x=x_values[valid_indices],
                 y=y_values[valid_indices],
-                mode="lines",
-                name=f"{angles_names[i]} - Line Plot",
-                line=dict(color=color),
+                mode="lines+markers",
+                name=f"{angles_names[i]}",
+                line=dict(color=color, width=2),
+                marker=dict(size=3, color=color),
+                showlegend=True,
             ),
             row=i + 1,
             col=1,
         )
 
-        # Histogram
+        # Histogram (distribution)
         fig.add_trace(
             go.Histogram(
                 x=y_values[valid_indices],
-                name=f"{angles_names[i]} - Histogram",
-                marker=dict(color=color),
+                name=f"{angles_names[i]} Dist",
+                marker=dict(color=color, opacity=0.7),
+                nbinsx=30,
+                showlegend=False,
             ),
             row=i + 1,
             col=2,
@@ -199,12 +206,214 @@ def plot_torsion(angles: np.ndarray, res: List[str], torsionResidue: int) -> go.
 
     # Update layout
     fig.update_layout(
-        height=1400,
-        width=1600,
-        title_text=f"Angles for Residue {res[residue_index]} Across All Frames",
-        showlegend=False,
+        height=1600,
+        width=1800,
+        title_text=f"Torsion Angles for Residue {res[residue_index]} ({residue_index})",
+        showlegend=True,
+        legend=dict(
+            orientation="h",
+            yanchor="bottom",
+            y=1.02,
+            xanchor="right",
+            x=1
+        )
     )
+    
+    # Update x and y axis labels
+    for i in range(7):
+        # Time series subplot
+        fig.update_xaxes(title_text="Frame Number", row=i+1, col=1)
+        fig.update_yaxes(title_text="Angle (degrees)", row=i+1, col=1)
+        
+        # Histogram subplot  
+        fig.update_xaxes(title_text="Angle (degrees)", row=i+1, col=2)
+        fig.update_yaxes(title_text="Frequency", row=i+1, col=2)
 
+    return fig
+
+def plot_torsion_enhanced(angles: np.ndarray, res: List[str], torsion_params: dict) -> go.Figure:
+    """Enhanced torsion plotting with multiple residue and angle selection support"""
+    
+    mode = torsion_params.get("torsionMode", "single")
+    selected_residues = torsion_params.get("torsionResidues", [])
+    selected_angles = torsion_params.get("torsionAngles", [])
+    
+    angles_names = ["alpha", "beta", "gamma", "delta", "epsilon", "zeta", "chi"]
+    colors = ["#636efa", "#ef553b", "#00cc96", "#a45bf9", "#fa9f5e", "#1ad0f2", "#ff6692"]
+    
+    if mode == "all":
+        # Plot all angles for all residues
+        return plot_all_torsions(angles, res, angles_names, colors)
+    elif mode == "multiple" and selected_residues and selected_angles:
+        # Plot selected angles for selected residues
+        return plot_multiple_torsions(angles, res, selected_residues, selected_angles, angles_names, colors)
+    else:
+        # Fallback to single residue plot
+        torsion_residue = torsion_params.get("torsionResidue", 0)
+        return plot_torsion(angles, res, torsion_residue)
+
+def plot_all_torsions(angles: np.ndarray, res: List[str], angles_names: List[str], colors: List[str]) -> go.Figure:
+    """Plot all torsion angles for all residues in a comprehensive view"""
+    
+    # Create a heatmap-style visualization
+    fig = go.Figure()
+    
+    # For each angle type, create a heatmap
+    for angle_idx, angle_name in enumerate(angles_names):
+        # Extract data for this angle across all residues and frames
+        angle_data = angles[:, :, angle_idx]  # frames x residues
+        
+        # Create heatmap
+        fig.add_trace(go.Heatmap(
+            z=angle_data.T,  # Transpose so residues are on y-axis
+            x=list(range(angle_data.shape[0])),  # Frame numbers
+            y=[f"{res[i]} ({i+1})" for i in range(len(res))],  # Residue labels
+            colorscale='Viridis',
+            name=angle_name,
+            visible=(angle_idx == 0),  # Only show first angle initially
+            colorbar=dict(title=f"{angle_name} angle (degrees)")
+        ))
+    
+    # Create dropdown menu to select angle type
+    dropdown_buttons = []
+    for i, angle_name in enumerate(angles_names):
+        visible_array = [False] * len(angles_names)
+        visible_array[i] = True
+        dropdown_buttons.append(dict(
+            label=angle_name.title(),
+            method='update',
+            args=[{'visible': visible_array}]
+        ))
+    
+    fig.update_layout(
+        title="All Torsion Angles Across Trajectory",
+        xaxis_title="Frame",
+        yaxis_title="Residue",
+        height=max(400, len(res) * 20),
+        updatemenus=[dict(
+            buttons=dropdown_buttons,
+            direction="down",
+            showactive=True,
+            x=1.0,
+            xanchor="left",
+            y=1.02,
+            yanchor="top"
+        )]
+    )
+    
+    return fig
+
+def plot_multiple_torsions(angles: np.ndarray, res: List[str], selected_residues: List[str], 
+                          selected_angles: List[str], angles_names: List[str], colors: List[str]) -> go.Figure:
+    """Plot selected torsion angles for selected residues"""
+    
+    # Convert residue names/indices to actual indices
+    residue_indices = []
+    for res_id in selected_residues:
+        try:
+            if res_id.isdigit():
+                idx = int(res_id)
+                if 0 <= idx < len(res):
+                    residue_indices.append(idx)
+            else:
+                # Try to find by residue name
+                for i, r in enumerate(res):
+                    if r == res_id or f"{r}{i+1}" == res_id:
+                        residue_indices.append(i)
+                        break
+        except:
+            continue
+    
+    # Convert angle names to indices
+    angle_indices = []
+    for angle in selected_angles:
+        if angle.lower() in [a.lower() for a in angles_names]:
+            angle_indices.append([a.lower() for a in angles_names].index(angle.lower()))
+    
+    if not residue_indices or not angle_indices:
+        # Fallback to single residue plot
+        return plot_torsion(angles, res, 0)
+    
+    # Create subplots for each residue
+    n_residues = len(residue_indices)
+    n_angles = len(angle_indices)
+    
+    subplot_titles = []
+    for idx in residue_indices:
+        subplot_titles.extend([
+            f"Residue {res[idx]} ({idx}) - Time Series",
+            f"Residue {res[idx]} ({idx}) - Distribution"
+        ])
+    
+    fig = make_subplots(
+        rows=n_residues,
+        cols=2,  # Line plot and histogram
+        subplot_titles=subplot_titles,
+        horizontal_spacing=0.15,
+        vertical_spacing=0.08,
+        specs=[[{"secondary_y": False}, {"secondary_y": False}] for _ in range(n_residues)]
+    )
+    
+    for res_idx, residue_idx in enumerate(residue_indices):
+        for angle_idx in angle_indices:
+            angle_name = angles_names[angle_idx]
+            color = colors[angle_idx % len(colors)]
+            
+            y_values = angles[:, residue_idx, angle_idx]
+            x_values = np.arange(len(y_values))
+            valid_indices = ~np.isnan(y_values)
+            
+            # Line plot
+            fig.add_trace(
+                go.Scattergl(
+                    x=x_values[valid_indices],
+                    y=y_values[valid_indices],
+                    mode="lines+markers",
+                    name=f"{res[residue_idx]} - {angle_name}",
+                    line=dict(color=color, width=2),
+                    marker=dict(size=3, color=color),
+                ),
+                row=res_idx + 1,
+                col=1,
+            )
+            
+            # Histogram
+            fig.add_trace(
+                go.Histogram(
+                    x=y_values[valid_indices],
+                    name=f"{res[residue_idx]} - {angle_name} Distribution",
+                    marker=dict(color=color, opacity=0.7),
+                    nbinsx=25,
+                    showlegend=False,
+                ),
+                row=res_idx + 1,
+                col=2,
+            )
+    
+    fig.update_layout(
+        height=400 * n_residues,
+        width=1800,
+        title_text=f"Selected Torsion Angles for {len(residue_indices)} Residues",
+        showlegend=True,
+        legend=dict(
+            orientation="v",
+            yanchor="top",
+            y=1,
+            xanchor="left",
+            x=1.01
+        )
+    )
+    
+    # Update axis labels for all subplots
+    for i in range(n_residues):
+        # Time series subplot
+        fig.update_xaxes(title_text="Frame Number", row=i+1, col=1)
+        fig.update_yaxes(title_text="Angle (degrees)", row=i+1, col=1)
+        
+        # Histogram subplot  
+        fig.update_xaxes(title_text="Angle (degrees)", row=i+1, col=2)
+        fig.update_yaxes(title_text="Frequency", row=i+1, col=2)
+    
     return fig
 
 @handle_plot_errors

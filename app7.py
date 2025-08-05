@@ -220,6 +220,42 @@ def handle_connect():
 def create_session_id():
     return uuid.uuid4().hex
 
+def parse_topology_file(file_path):
+    """Parse topology file and extract residue information for torsion angle calculation"""
+    try:
+        u = mda.Universe(file_path)
+        residues_info = []
+        
+        for residue in u.residues:
+            res_info = {
+                'index': int(residue.resindex),  # Convert numpy int64 to Python int
+                'name': str(residue.resname),    # Ensure string type
+                'id': int(residue.resid),        # Convert numpy int64 to Python int
+                'full_name': f"{residue.resname}{residue.resid}"
+            }
+            residues_info.append(res_info)
+        
+        # Standard RNA torsion angles
+        torsion_angles = [
+            {'name': 'alpha', 'description': 'Alpha (O3\'-P-O5\'-C5\')'},
+            {'name': 'beta', 'description': 'Beta (P-O5\'-C5\'-C4\')'},
+            {'name': 'gamma', 'description': 'Gamma (O5\'-C5\'-C4\'-C3\')'},
+            {'name': 'delta', 'description': 'Delta (C5\'-C4\'-C3\'-O3\')'},
+            {'name': 'epsilon', 'description': 'Epsilon (C4\'-C3\'-O3\'-P)'},
+            {'name': 'zeta', 'description': 'Zeta (C3\'-O3\'-P-O5\')'},
+            {'name': 'chi', 'description': 'Chi (O4\'-C1\'-N1-C2/C4)'}
+        ]
+        
+        return {
+            'residues': residues_info,
+            'torsion_angles': torsion_angles,
+            'num_residues': len(residues_info),
+            'sequence': [str(res.resname) for res in u.residues]  # Ensure strings
+        }
+    except Exception as e:
+        logger.error(f"Error parsing topology file {file_path}: {str(e)}")
+        return None
+
 
 @app.route("/", methods=["GET", "POST"])
 def index():
@@ -244,6 +280,56 @@ def get_session():
     session_exists = os.path.isdir(session_path)
 
     return jsonify({"session_id": session_id, "exists": session_exists})
+
+@app.route("/parse-topology", methods=["POST"])
+def parse_topology():
+    """Parse uploaded topology file and return residue information"""
+    if "topologyFile" not in request.files:
+        return jsonify({"error": "No topology file provided"}), 400
+    
+    topology_file = request.files["topologyFile"]
+    if topology_file.filename == "":
+        return jsonify({"error": "No file selected"}), 400
+    
+    session_id = request.form.get("session_id")
+    if not session_id:
+        return jsonify({"error": "No session ID provided"}), 400
+    
+    # Create session directory if it doesn't exist
+    session_dir = os.path.join(app.static_folder, session_id)
+    os.makedirs(session_dir, exist_ok=True)
+    
+    # Save the file temporarily for parsing
+    temp_filename = secure_filename(topology_file.filename)
+    temp_path = os.path.join(session_dir, f"temp_{temp_filename}")
+    
+    try:
+        topology_file.save(temp_path)
+        
+        # Parse the file
+        topology_info = parse_topology_file(temp_path)
+        
+        if topology_info is None:
+            return jsonify({"error": "Failed to parse topology file"}), 500
+        
+        return jsonify({
+            "success": True,
+            "residues": topology_info["residues"],
+            "torsion_angles": topology_info["torsion_angles"],
+            "num_residues": topology_info["num_residues"],
+            "sequence": topology_info["sequence"]
+        })
+        
+    except Exception as e:
+        logger.error(f"Error parsing topology file: {str(e)}")
+        return jsonify({"error": f"Error parsing file: {str(e)}"}), 500
+    finally:
+        # Clean up temporary file
+        if os.path.exists(temp_path):
+            try:
+                os.remove(temp_path)
+            except:
+                pass
 
 @app.route("/cgu")
 def cgu():
@@ -339,11 +425,19 @@ def upload_files():
             print(plot)
             selected_plots.append(plot)
 
+    # Handle torsion angle parameters
+    torsion_residues = request.form.getlist("torsionResidues")
+    torsion_angles = request.form.getlist("torsionAngles")
+    torsion_mode = request.form.get("torsionMode", "single")  # single, multiple, all
+    
     session_data = {
         "selected_plots": selected_plots,
         "n_frames": n_frames,
         "frame_range": frame_range,
         "torsionResidue": request.form.get("torsionResidue", 0),
+        "torsionResidues": torsion_residues,
+        "torsionAngles": torsion_angles,
+        "torsionMode": torsion_mode,
         "landscape_stride": request.form.get("landscape_stride", 0),
         "landscape_first_component": request.form.get("firstDimension", 0),
         "landscape_second_component": request.form.get("secondDimension", 0),
@@ -571,8 +665,13 @@ def view_trajectory(session_id, native_pdb, traj_xtc):
                 job = generate_ermsd_plot.apply_async(args=[native_pdb_path, traj_xtc_path, files_path, plot_dir, session_id])
                 plot_style = "scatter"
             elif plot == "TORSION":
-                torsion_residue = session.get("torsionResidue", 0)
-                job = generate_torsion_plot.apply_async(args=[native_pdb_path, traj_xtc_path, files_path, plot_dir, session_id, torsion_residue])
+                torsion_params = {
+                    "torsionResidue": session.get("torsionResidue", 0),
+                    "torsionResidues": session.get("torsionResidues", []),
+                    "torsionAngles": session.get("torsionAngles", []),
+                    "torsionMode": session.get("torsionMode", "single")
+                }
+                job = generate_torsion_plot.apply_async(args=[native_pdb_path, traj_xtc_path, files_path, plot_dir, session_id, torsion_params])
                 plot_style = "torsion"
             elif plot == "SEC_STRUCTURE":
                 job = generate_sec_structure_plot.apply_async(args=[native_pdb_path, traj_xtc_path, files_path, plot_dir, session_id])

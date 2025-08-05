@@ -199,11 +199,19 @@ def generate_ermsd_plot(self, native_pdb_path, traj_xtc_path, download_path, plo
 
 @app2.task(bind=True, max_retries=3)
 @log_task_execution
-def generate_torsion_plot(self, native_pdb_path, traj_xtc_path, download_path, plot_path, session_id, torsion_residue=0):
+def generate_torsion_plot(self, native_pdb_path, traj_xtc_path, download_path, plot_path, session_id, torsion_params=None):
     try:
         angles, res = bb.backbone_angles(traj_xtc_path, topology=native_pdb_path)
         logger.info(f"Calculated torsion angles for {len(res)} residues")
-        fig = plot_torsion(angles, res, torsion_residue)
+        
+        # Handle backward compatibility
+        if isinstance(torsion_params, dict):
+            fig = plot_torsion_enhanced(angles, res, torsion_params)
+        else:
+            # Old single residue format
+            torsion_residue = torsion_params if torsion_params is not None else 0
+            fig = plot_torsion(angles, res, torsion_residue)
+            
         fig.write_html(os.path.join(plot_path, "torsion_plot.html"))
         
         # Save data
