@@ -11,7 +11,7 @@ class RNATrajectoryAnalysis:
     Client for interacting with the RNA trajectory analysis web service.
     """
     
-    def __init__(self, base_url="http://localhost:5000"):
+    def __init__(self, base_url="http://localhost:4242"):
         """
         Initialize the RNA trajectory analysis client.
         

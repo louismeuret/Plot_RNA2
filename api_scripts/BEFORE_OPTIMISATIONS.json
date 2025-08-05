@@ -1,0 +1,137 @@
+{
+  "procedure_summary": {
+    "total_duration_seconds": 9.668,
+    "total_duration_formatted": "9.668s",
+    "description": "Complete time from session start to analysis completion including browser opening",
+    "session_id": "31811dea7b5b41daa94e1cfe4d0c571c",
+    "files_analyzed": {
+      "pdb_file": "first_frame.gro",
+      "xtc_file": "output.trr"
+    },
+    "procedure_completed_at": "2025-08-05T15:43:10.443953",
+    "phases_included": [
+      "session_creation",
+      "file_upload",
+      "analysis_completion",
+      "selenium_page_load",
+      "browser_operation_total",
+      "overall_procedure"
+    ],
+    "timing_method": "selenium_webdriver"
+  },
+  "detailed_timings": {
+    "overall_procedure": {
+      "start_time": "2025-08-05T15:43:00.777054",
+      "description": "Complete RNA trajectory analysis procedure from initialization to results availability",
+      "duration_seconds": 9.668,
+      "end_time": "2025-08-05T15:43:10.443878"
+    },
+    "session_creation": {
+      "duration_seconds": 0.003,
+      "description": "Time taken to create a new analysis session with the server",
+      "timestamp": "2025-08-05T15:43:00.780499"
+    },
+    "file_upload": {
+      "total_duration_seconds": 4.804,
+      "http_request_duration_seconds": 4.8,
+      "description": "Time taken to upload files (first_frame.gro and output.trr) to the server and receive response",
+      "file_sizes": {
+        "pdb_file_mb": 0.014,
+        "xtc_file_mb": 7.357
+      },
+      "analysis_options": [
+        "RMSD",
+        "ERMSD",
+        "CONTACT_MAPS",
+        "SEC_STRUCTURE",
+        "DOTBRACKET",
+        "ARC",
+        "LANDSCAPE",
+        "BASE_PAIRING"
+      ],
+      "frame_options": {
+        "n_frames": 1,
+        "first_frame": 0,
+        "last_frame": null,
+        "stride": 1
+      },
+      "timestamp": "2025-08-05T15:43:05.580777"
+    },
+    "analysis_completion": {
+      "duration_seconds": 0.013,
+      "description": "Time taken for server to complete analysis and become ready for result retrieval (waited 1 attempts)",
+      "attempts_made": 1,
+      "retry_interval_seconds": 5,
+      "timestamp": "2025-08-05T15:43:05.594481"
+    },
+    "selenium_page_load": {
+      "total_duration_seconds": 4.294,
+      "navigation_duration_seconds": 3.202,
+      "full_load_duration_seconds": 1.092,
+      "webdriver_setup_duration_seconds": 0.405,
+      "browser_used": "Chrome",
+      "page_title": "RNA trajectory explorer",
+      "page_source_size_kb": 1005.64,
+      "description": "Complete page load timing using Chrome WebDriver - measures from navigation start to full page load completion",
+      "url": "http://127.0.0.1:4242/retrieve-results?session_id=31811dea7b5b41daa94e1cfe4d0c571c",
+      "timestamp": "2025-08-05T15:43:10.443757"
+    },
+    "browser_operation_total": {
+      "total_duration_seconds": 4.758,
+      "description": "Total time for complete browser operation including WebDriver setup, navigation, and full page load",
+      "method": "selenium_webdriver",
+      "timestamp": "2025-08-05T15:43:10.443785"
+    }
+  },
+  "performance_breakdown": {
+    "overall_procedure": {
+      "percentage_of_total": 100.0,
+      "duration_seconds": 9.668,
+      "description": "Complete RNA trajectory analysis procedure from initialization to results availability"
+    },
+    "session_creation": {
+      "percentage_of_total": 0.03,
+      "duration_seconds": 0.003,
+      "description": "Time taken to create a new analysis session with the server"
+    },
+    "file_upload": {
+      "percentage_of_total": 49.69,
+      "duration_seconds": 4.804,
+      "description": "Time taken to upload files (first_frame.gro and output.trr) to the server and receive response"
+    },
+    "analysis_completion": {
+      "percentage_of_total": 0.13,
+      "duration_seconds": 0.013,
+      "description": "Time taken for server to complete analysis and become ready for result retrieval (waited 1 attempts)"
+    },
+    "selenium_page_load": {
+      "percentage_of_total": 44.41,
+      "duration_seconds": 4.294,
+      "description": "Complete page load timing using Chrome WebDriver - measures from navigation start to full page load completion"
+    },
+    "browser_operation_total": {
+      "percentage_of_total": 49.21,
+      "duration_seconds": 4.758,
+      "description": "Total time for complete browser operation including WebDriver setup, navigation, and full page load"
+    }
+  },
+  "comparison_metrics": {
+    "file_sizes_mb": {
+      "pdb_file_mb": 0.014,
+      "xtc_file_mb": 7.357
+    },
+    "browser_performance": {
+      "browser_used": "Chrome",
+      "page_load_speed_seconds": 1.092,
+      "page_size_kb": 1005.64,
+      "navigation_speed_seconds": 3.202
+    },
+    "analysis_efficiency": {
+      "completion_time_seconds": 0.013,
+      "attempts_required": 1,
+      "retry_interval_seconds": 5,
+      "efficiency_score": 1.0
+    },
+    "upload_speed_mbps": 1.534
+  }
+}
