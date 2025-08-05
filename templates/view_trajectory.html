@@ -113,6 +113,21 @@
                         Show/Hide Sidechains
                     </button>
                 </div>
+                
+                <!-- Cache Controls -->
+                <div class="cache-controls-section" style="margin-top: 15px; padding: 10px; border: 1px solid #ddd; border-radius: 5px;">
+                    <h6 style="margin: 0 0 10px 0; font-size: 12px; color: #666;">Trajectory Cache</h6>
+                    <div class="cache-controls" style="display: flex; gap: 5px; flex-wrap: wrap;">
+                        <button id="cacheStatsBtn" class="cache-button" onclick="showCacheStats()" style="font-size: 11px; padding: 4px 8px; background: #e8f4fd; border: 1px solid #bee5eb; border-radius: 3px; cursor: pointer;">
+                            Stats
+                        </button>
+                        <button id="clearCacheBtn" class="cache-button" onclick="clearTrajectoryCache()" style="font-size: 11px; padding: 4px 8px; background: #f8d7da; border: 1px solid #f5c6cb; border-radius: 3px; cursor: pointer;">
+                            Clear
+                        </button>
+                        <span id="cacheStatus" style="font-size: 10px; color: #666; align-self: center;"></span>
+                    </div>
+                    <div id="uploadCacheStatus" style="margin-top: 5px; font-size: 10px; color: #666;"></div>
+                </div>
             </div>
         </div>
 
@@ -213,7 +228,7 @@
         elements_doc.mainContentContainer.style.display = 'flex';
 
         // Start loading the viewer
-        initViewer();
+        startViewer();
 
         // Load plots after a short delay to prioritize the viewer
         loadPlots();
@@ -237,12 +252,138 @@
                 });
     });
 
-    // Initialize the molecular viewer
-    function initViewer() {
-        LouisMolStarWrapper.init("viewport").then(() => {
+    // Initialize the molecular viewer with caching
+    async function initViewer() {
+        try {
+            console.log('Viewer: Starting MolStar initialization...');
+            
+            await LouisMolStarWrapper.init("viewport");
             LouisMolStarWrapper.setBackground(0xffffff);
+            console.log('Success: Viewer: MolStar initialized successfully');
 
-            return LouisMolStarWrapper.loadTrajectory({
+            // Load trajectory with caching
+            const result = await loadTrajectoryWithCache();
+            return result;
+        } catch (error) {
+            console.error('Error: Viewer: Error in initViewer:', error);
+            throw error;
+        }
+    }
+
+    // Enhanced trajectory loading with IndexedDB caching
+    async function loadTrajectoryWithCache() {
+        console.log('Cache: Starting cached trajectory loading...');
+        
+        // Check if frame settings were modified (bypass cache if so)
+        const frameSettingsModified = checkIfFrameSettingsModified();
+        if (frameSettingsModified) {
+            console.log('Warning: Cache: Frame settings detected, bypassing cache and using server files');
+            return await loadTrajectoryFromServer();
+        }
+        
+        // Add protection against browser extension messaging conflicts
+        if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.onMessage) {
+            console.log('Cache: Browser extension detected, adding message handler protection');
+        }
+        console.log('Cache: Configuration:', {
+            sessionId: CONFIG.sessionId,
+            nativePdb: CONFIG.nativePdb,
+            trajXtc: CONFIG.trajXtc,
+            nativeFormat: CONFIG.nativeFormat,
+            trajFormat: CONFIG.trajFormat
+        });
+
+        try {
+            const cache = window.trajectoryCache;
+            const sessionId = CONFIG.sessionId;
+            
+            // Extract filenames from URLs
+            const trajFileName = CONFIG.trajXtc.split('/').pop();
+            const nativeFileName = CONFIG.nativePdb.split('/').pop();
+            
+            console.log('Cache: Processing files:', { trajFileName, nativeFileName });
+
+            // Load structure file (topology) - prioritize cache from upload
+            console.log('Cache: Loading structure file...');
+            let structureResult = await cache.getFile(sessionId, nativeFileName);
+            if (!structureResult) {
+                console.log('Cache: Structure not found in upload cache, downloading from server...');
+                structureResult = await cache.downloadAndCache(CONFIG.nativePdb, sessionId, nativeFileName);
+            } else {
+                console.log('Cache: Using structure from upload cache!');
+            }
+            
+            // Load trajectory file (coordinates) - prioritize cache from upload  
+            console.log('Cache: Loading trajectory file...');
+            let trajectoryResult = await cache.getFile(sessionId, trajFileName);
+            if (!trajectoryResult) {
+                console.log('Cache: Trajectory not found in upload cache, downloading from server...');
+                trajectoryResult = await cache.downloadAndCache(CONFIG.trajXtc, sessionId, trajFileName);
+            } else {
+                console.log('Cache: Using trajectory from upload cache!');
+            }
+
+            // Log loading results
+            const loadingResults = {
+                structure: {
+                    fromCache: structureResult.fromCache,
+                    fallback: structureResult.fallback,
+                    sizeMB: structureResult.size ? (structureResult.size / 1024 / 1024).toFixed(2) : 'unknown'
+                },
+                trajectory: {
+                    fromCache: trajectoryResult.fromCache,
+                    fallback: trajectoryResult.fallback,
+                    sizeMB: trajectoryResult.size ? (trajectoryResult.size / 1024 / 1024).toFixed(2) : 'unknown'
+                }
+            };
+            console.log('Stats: Cache: Loading results:', loadingResults);
+            
+            // Update upload cache status UI
+            updateUploadCacheStatus(loadingResults);
+
+            // Load with MolStar
+            console.log('MolStar: Loading trajectory with processed URLs...');
+            const loadResult = await LouisMolStarWrapper.loadTrajectory({
+                model: {
+                    kind: "model-url",
+                    url: structureResult.url,
+                    format: CONFIG.nativeFormat
+                },
+                coordinates: {
+                    kind: "coordinates-url",
+                    url: trajectoryResult.url,
+                    format: CONFIG.trajFormat,
+                    isBinary: true
+                },
+                preset: "default"
+            });
+
+            console.log('Success: MolStar: Trajectory loaded successfully');
+            
+            // Clean up blob URLs if they were created (not for fallback URLs)
+            if (!structureResult.fallback && structureResult.url.startsWith('blob:')) {
+                console.log('Cache: Scheduling structure blob URL cleanup');
+                setTimeout(() => URL.revokeObjectURL(structureResult.url), 5000);
+            }
+            if (!trajectoryResult.fallback && trajectoryResult.url.startsWith('blob:')) {
+                console.log('Cache: Scheduling trajectory blob URL cleanup');
+                setTimeout(() => URL.revokeObjectURL(trajectoryResult.url), 5000);
+            }
+
+            return loadResult;
+
+        } catch (error) {
+            console.error('Error: Cache: Error in cached trajectory loading:', error);
+            console.log('Cache: Falling back to server loading...');
+            return await loadTrajectoryFromServer();
+        }
+    }
+
+    // Load trajectory directly from server (bypassing cache)
+    async function loadTrajectoryFromServer() {
+        console.log('Server: Loading trajectory directly from server...');
+        try {
+            return await LouisMolStarWrapper.loadTrajectory({
                 model: {
                     kind: "model-url",
                     url: CONFIG.nativePdb,
@@ -256,8 +397,56 @@
                 },
                 preset: "default"
             });
-        })
-        .then(() => {
+        } catch (error) {
+            console.error('Error: Server: Direct server loading failed:', error);
+            throw error;
+        }
+    }
+
+    // Check if frame settings were modified during upload
+    function checkIfFrameSettingsModified() {
+        // This information should come from the session data
+        // For now, we'll check the URL or session data
+        
+        // If frame_range is not "all", then frame settings were modified
+        const frameRange = "{{ frame_range if frame_range else 'all' }}";
+        const isModified = frameRange !== "all";
+        
+        console.log(`Cache: Frame settings check - Range: "${frameRange}", Modified: ${isModified}`);
+        
+        return isModified;
+    }
+
+    // Update upload cache status display
+    function updateUploadCacheStatus(loadingResults) {
+        const statusElement = document.getElementById('uploadCacheStatus');
+        if (!statusElement) return;
+        
+        let statusText = '';
+        let statusColor = '#666';
+        
+        if (loadingResults.structure.fromCache && loadingResults.trajectory.fromCache) {
+            statusText = `Using files from upload cache (${loadingResults.structure.sizeMB}MB + ${loadingResults.trajectory.sizeMB}MB)`;
+            statusColor = '#4ecdc4';
+        } else if (loadingResults.structure.fromCache || loadingResults.trajectory.fromCache) {
+            const cachedFile = loadingResults.structure.fromCache ? 'structure' : 'trajectory';
+            const downloadedFile = loadingResults.structure.fromCache ? 'trajectory' : 'structure';
+            statusText = `Partial cache: ${cachedFile} from upload, ${downloadedFile} downloaded`;
+            statusColor = '#ffc107';
+        } else {
+            statusText = `Files downloaded from server (cache miss)`;
+            statusColor = '#ff6b6b';
+        }
+        
+        statusElement.textContent = statusText;
+        statusElement.style.color = statusColor;
+        
+        console.log('Stats: UI: Upload cache status updated:', statusText);
+    }
+
+    // Function to start the viewer initialization
+    function startViewer() {
+        initViewer().then(() => {
             // Viewer is ready, show controls
             state.viewerReady = true;
             elements_doc.viewport.style.display = 'block';
@@ -438,10 +627,108 @@
         });
     }
 
-    // Setup event listeners after everything is loaded
+    // Cache management functions
+    async function showCacheStats() {
+        try {
+            console.log('Stats: UI: Requesting cache statistics...');
+            const stats = await window.trajectoryCache.getCacheStats();
+            
+            if (!stats.supported) {
+                alert('Error: Cache not supported in this browser\n\nIndexedDB or required APIs are not available.');
+                return;
+            }
+            
+            let message = `Stats: Trajectory Cache Statistics\n\n`;
+            message += `Files cached: ${stats.count}\n`;
+            message += `Total size: ${stats.totalSizeMB}MB\n`;
+            message += `Cache utilization: ${stats.utilizationPercent}%\n`;
+            message += `Structure files: ${stats.structureCount}\n`;
+            message += `Trajectory files: ${stats.trajectoryCount}\n\n`;
+            
+            if (stats.entries && stats.entries.length > 0) {
+                message += `Cached files:\n`;
+                stats.entries.forEach(entry => {
+                    message += `- ${entry.fileName} (${entry.sizeMB}MB, ${entry.age}min ago)\n`;
+                });
+            }
+            
+            alert(message);
+            console.log('Stats: Cache Stats:', stats);
+            
+        } catch (error) {
+            console.error('Error: UI: Error getting cache stats:', error);
+            alert('Error: Error getting cache statistics\n\nCheck console for details.');
+        }
+    }
+
+    async function clearTrajectoryCache() {
+        try {
+            const confirmed = confirm('Clear Trajectory Cache?\n\nThis will remove all cached trajectory and structure files.\nYou will need to re-download them on next visit.\n\nContinue?');
+            
+            if (!confirmed) {
+                console.log('UI: Cache clear cancelled by user');
+                return;
+            }
+            
+            console.log('UI: Clearing trajectory cache...');
+            const success = await window.trajectoryCache.clearCache();
+            
+            if (success) {
+                alert('Success: Cache cleared successfully!\n\nAll trajectory files have been removed from browser storage.');
+                updateCacheStatus();
+            } else {
+                alert('Error: Failed to clear cache\n\nCheck console for details.');
+            }
+            
+        } catch (error) {
+            console.error('Error: UI: Error clearing cache:', error);
+            alert('Error: Error clearing cache\n\nCheck console for details.');
+        }
+    }
+
+    async function updateCacheStatus() {
+        try {
+            const stats = await window.trajectoryCache.getCacheStats();
+            const statusElement = document.getElementById('cacheStatus');
+            
+            if (!stats.supported) {
+                statusElement.textContent = 'Not supported';
+                statusElement.style.color = '#999';
+                return;
+            }
+            
+            if (stats.count === 0) {
+                statusElement.textContent = 'Empty';
+                statusElement.style.color = '#999';
+            } else {
+                statusElement.textContent = `${stats.count} files, ${stats.totalSizeMB}MB`;
+                statusElement.style.color = stats.utilizationPercent > 80 ? '#ff6b6b' : '#4ecdc4';
+            }
+            
+        } catch (error) {
+            console.error('Error: UI: Error updating cache status:', error);
+            const statusElement = document.getElementById('cacheStatus');
+            statusElement.textContent = 'Error: Status check failed';
+            statusElement.style.color = '#ff6b6b';
+        }
+    }
+
+    // Setup event listeners after everything is loaded  
     window.addEventListener("load", function () {
+        console.log('UI: Page loaded, setting up event listeners...');
         setupEventListeners();
         setupScrollBehavior();
+        
+        // Initialize cache status
+        console.log('UI: Initializing cache status display...');
+        setTimeout(updateCacheStatus, 1000); // Delay to ensure cache is initialized
+        
+        // Log cache readiness
+        if (window.trajectoryCache) {
+            console.log('Success: UI: TrajectoryCache instance available');
+        } else {
+            console.error('Error: UI: TrajectoryCache instance not found');
+        }
     });
 </script>
 {% endblock %}

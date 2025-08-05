@@ -343,6 +343,14 @@ def authors():
 def documentation():
     return render_template("documentation.html")
 
+@app.route("/cache-debug")
+def cache_debug():
+    return render_template("cache-debug.html")
+
+@app.route("/simple-test")
+def simple_test():
+    return render_template("simple-test.html")
+
 @app.route("/documentationll")
 def documentation2():
     return render_template("documentationll.html")

@@ -603,6 +603,7 @@ select {
         <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.4.0/p5.js"></script>
         <script src="https://cdnjs.cloudflare.com/ajax/libs/matter-js/0.17.1/matter.min.js"></script>
         <script src="{{ url_for('static', filename='js/app.js') }}"></script>
+        <script src="{{ url_for('static', filename='js/trajectory-cache.js') }}"></script>
         <script
             src="https://code.jquery.com/jquery-3.3.1.slim.min.js"
             integrity="sha384-q8i/X+965DzO0rT7abK41JStQIAqVgRVzpbzo5smXKp4YfRvH+8abtTE1Pi6jizo"
@@ -772,6 +773,12 @@ select {
                 
                 // Initialize torsion angle functionality
                 initializeTorsionControls();
+                
+                // Initialize frame settings listeners
+                initFrameSettingsListeners();
+                
+                // Initial check for frame settings
+                checkFrameSettingsModified();
             });
         </script>
         
@@ -805,10 +812,19 @@ select {
                     });
                 });
                 
-                // Parse topology file when uploaded
+                // Parse topology file and start caching when uploaded
                 nativePdbInput.addEventListener('change', function() {
                     if (this.files.length > 0) {
                         parseTopologyFile(this.files[0]);
+                        startFileCaching(this.files[0], 'topology');
+                    }
+                });
+                
+                // Cache trajectory file when selected
+                const trajXtcInput = document.getElementById('trajXtc');
+                trajXtcInput.addEventListener('change', function() {
+                    if (this.files.length > 0) {
+                        startFileCaching(this.files[0], 'trajectory');
                     }
                 });
             }
@@ -875,6 +891,136 @@ select {
                 const residueCheckboxes = document.querySelectorAll('input[name="torsionResidues"]');
                 residueCheckboxes.forEach(checkbox => {
                     checkbox.checked = selectAllCheckbox.checked;
+                });
+            }
+            
+            // File caching functionality
+            let cacheStatus = {
+                topology: { cached: false, caching: false, file: null },
+                trajectory: { cached: false, caching: false, file: null }
+            };
+            
+            function startFileCaching(file, fileType) {
+                console.log(`Upload Cache: Starting to cache ${fileType} file: ${file.name} (${(file.size / 1024 / 1024).toFixed(2)}MB`);
+                
+                if (cacheStatus[fileType].caching) {
+                    console.log(`Warning: Upload Cache: Already caching ${fileType}, skipping`);
+                    return;
+                }
+                
+                cacheStatus[fileType] = { cached: false, caching: true, file: file };
+                updateCacheIndicator(fileType, 'caching');
+                
+                // Create blob from file and cache it
+                const sessionId = "{{ session_id }}";
+                const blob = new Blob([file], { type: file.type });
+                
+                // Cache the file using our trajectory cache
+                if (window.trajectoryCache) {
+                    window.trajectoryCache.cacheFile(sessionId, file.name, blob)
+                        .then(success => {
+                            if (success) {
+                                console.log(`Success: Upload Cache: Successfully cached ${fileType}: ${file.name}`);
+                                cacheStatus[fileType] = { cached: true, caching: false, file: file };
+                                updateCacheIndicator(fileType, 'cached');
+                            } else {
+                                console.warn(`Warning: Upload Cache: Failed to cache ${fileType}: ${file.name}`);
+                                cacheStatus[fileType] = { cached: false, caching: false, file: file };
+                                updateCacheIndicator(fileType, 'error');
+                            }
+                        })
+                        .catch(error => {
+                            console.error(`Error: Upload Cache: Error caching ${fileType}:`, error);
+                            cacheStatus[fileType] = { cached: false, caching: false, file: file };
+                            updateCacheIndicator(fileType, 'error');
+                        });
+                } else {
+                    console.warn('Warning: Upload Cache: trajectoryCache not available');
+                    cacheStatus[fileType] = { cached: false, caching: false, file: file };
+                    updateCacheIndicator(fileType, 'error');
+                }
+            }
+            
+            function updateCacheIndicator(fileType, status) {
+                const indicatorId = fileType === 'topology' ? 'topologyCacheStatus' : 'trajectoryCacheStatus';
+                let indicator = document.getElementById(indicatorId);
+                
+                if (!indicator) {
+                    // Create indicator if it doesn't exist
+                    const input = document.getElementById(fileType === 'topology' ? 'nativePdb' : 'trajXtc');
+                    indicator = document.createElement('span');
+                    indicator.id = indicatorId;
+                    indicator.style.cssText = 'margin-left: 10px; font-size: 12px; padding: 2px 6px; border-radius: 3px;';
+                    input.parentNode.appendChild(indicator);
+                }
+                
+                switch (status) {
+                    case 'caching':
+                        indicator.textContent = 'Caching...';
+                        indicator.style.background = '#fff3cd';
+                        indicator.style.color = '#856404';
+                        break;
+                    case 'cached':
+                        indicator.textContent = 'Success: Cached';
+                        indicator.style.background = '#d4edda';
+                        indicator.style.color = '#155724';
+                        break;
+                    case 'error':
+                        indicator.textContent = 'Error: Cache failed';
+                        indicator.style.background = '#f8d7da';
+                        indicator.style.color = '#721c24';
+                        break;
+                    default:
+                        indicator.textContent = '';
+                        indicator.style.background = '';
+                        indicator.style.color = '';
+                }
+            }
+            
+            function checkFrameSettingsModified() {
+                const firstFrame = document.getElementById('firstFrame').value;
+                const lastFrame = document.getElementById('lastFrame').value;
+                const stride = document.getElementById('stride').value;
+                
+                // If any frame setting is specified, cache should not be used
+                const isModified = firstFrame || lastFrame || stride;
+                
+                if (isModified) {
+                    console.log('Warning: Upload Cache: Frame settings detected, cache will be bypassed during analysis');
+                    updateFrameSettingsWarning(true);
+                } else {
+                    console.log('Success: Upload Cache: No frame settings, cache will be used during analysis');
+                    updateFrameSettingsWarning(false);
+                }
+                
+                return isModified;
+            }
+            
+            function updateFrameSettingsWarning(show) {
+                let warning = document.getElementById('frameSettingsWarning');
+                
+                if (!warning && show) {
+                    warning = document.createElement('div');
+                    warning.id = 'frameSettingsWarning';
+                    warning.style.cssText = 'margin-top: 10px; padding: 8px; background: #fff3cd; border: 1px solid #ffeaa7; border-radius: 4px; color: #856404; font-size: 13px;';
+                    warning.innerHTML = 'Warning: <strong>Frame Settings Active:</strong> Cache will be bypassed for trajectory processing due to custom frame settings.';
+                    
+                    const frameSettings = document.querySelector('[for="frameSettings"]').parentNode;
+                    frameSettings.appendChild(warning);
+                } else if (warning && !show) {
+                    warning.remove();
+                }
+            }
+            
+            // Add frame settings change listeners
+            function initFrameSettingsListeners() {
+                const frameInputs = ['firstFrame', 'lastFrame', 'stride'];
+                frameInputs.forEach(id => {
+                    const input = document.getElementById(id);
+                    if (input) {
+                        input.addEventListener('input', checkFrameSettingsModified);
+                        input.addEventListener('change', checkFrameSettingsModified);
+                    }
                 });
             }
         </script>
