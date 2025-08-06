@@ -93,7 +93,7 @@ def write_contact_map(
         
     # Get the unique atom indices and the inverted signature
     atom_indices = np.unique(np.array(signature, dtype=np.uint32).flatten())
-    inverted_signature = np.array(signature, copy=False, dtype=np.uint32)[:, ::-1]
+    inverted_signature = np.asarray(signature, dtype=np.uint32)[:, ::-1]
     sorted_indices = np.lexsort((inverted_signature[:, 1], inverted_signature[:, 0]))
     inverted_signature = inverted_signature[sorted_indices]
     

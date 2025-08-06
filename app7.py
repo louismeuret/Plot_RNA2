@@ -62,7 +62,9 @@ import pickle
 import io
 import zipfile
 
-from tasks_celery import *
+# Import ultra-optimized tasks with caching (all tasks including batch coordinator)
+from tasks_celery_ultra_optimized import *
+from computation_cache import computation_cache
 from celery.result import AsyncResult
 import threading
 import logging
@@ -86,6 +88,26 @@ class CalculationRequirement:
     cpu_intensive: bool
     dependencies: List[str]
     
+def get_plot_style(plot_type: str) -> str:
+    """Get the appropriate plot style for a given plot type"""
+    style_mapping = {
+        'RMSD': 'scatter2',
+        'ERMSD': 'scatter',
+        'TORSION': 'torsion',
+        'SEC_STRUCTURE': 'bar',
+        'DOTBRACKET': 'dotbracket',
+        'ARC': 'arc',
+        'CONTACT_MAPS': 'CONTACT_MAPS',
+        'ANNOTATE': 'annotate',
+        'DS_MOTIF': 'motif',
+        'SS_MOTIF': 'motif',
+        'JCOUPLING': 'scatter',
+        'ESCORE': 'scatter',
+        'LANDSCAPE': 'surface',
+        'BASE_PAIRING': '2Dpairing'
+    }
+    return style_mapping.get(plot_type, 'default')
+
 class CalculationPlanner:
     """Plans and manages calculation resources"""
     
@@ -350,6 +372,79 @@ def cache_debug():
 @app.route("/simple-test")
 def simple_test():
     return render_template("simple-test.html")
+
+@app.route("/cache-stats")
+def cache_stats():
+    """Get computation cache statistics"""
+    try:
+        stats = computation_cache.get_cache_stats()
+        return jsonify({
+            'success': True,
+            'stats': stats
+        })
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+@app.route("/clear-computation-cache/<session_id>", methods=['POST'])
+def clear_computation_cache_route(session_id):
+    """Clear computation cache for a specific session"""
+    try:
+        deleted_count = computation_cache.invalidate_session(session_id)
+        return jsonify({
+            'success': True,
+            'deleted_keys': deleted_count,
+            'message': f'Cleared {deleted_count} cached computations for session {session_id}'
+        })
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+@app.route("/benchmark-performance/<session_id>", methods=['POST'])
+def benchmark_performance_route(session_id):
+    """Run performance benchmark for different optimization strategies"""
+    try:
+        # Get file paths from session
+        directory_path = os.path.join(app.static_folder, session_id)
+        
+        with open(os.path.join(directory_path, "session_data.json"), "r") as file:
+            session_data = json.load(file)
+        
+        native_pdb = session_data['files']['nativePdb']
+        traj_xtc = session_data['files']['trajXtc']
+        
+        native_pdb_path = os.path.join(directory_path, native_pdb)
+        traj_xtc_path = os.path.join(directory_path, traj_xtc)
+        
+        # Start benchmark task
+        benchmark_job = performance_benchmark.apply_async(
+            args=[native_pdb_path, traj_xtc_path, session_id]
+        )
+        
+        # Wait for results (with timeout)
+        try:
+            results = benchmark_job.get(timeout=300)  # 5 minute timeout
+            return jsonify({
+                'success': True,
+                'benchmark_results': results,
+                'session_id': session_id
+            })
+        except Exception as e:
+            return jsonify({
+                'success': False,
+                'error': f'Benchmark timeout or failed: {str(e)}',
+                'task_id': benchmark_job.id
+            }), 500
+        
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
 
 @app.route("/documentationll")
 def documentation2():
@@ -653,86 +748,177 @@ def view_trajectory(session_id, native_pdb, traj_xtc):
     socketio.emit('update_progress', {"progress": 45, "message": "Calculations planned and optimized."}, to=session_id)
     socketio.sleep(0.1)
     
-    plot_data = []
-    for plot in optimized_order:
-        files_path = os.path.join(download_path, plot)
-        plot_dir = os.path.join(download_plot, plot)
-        os.makedirs(files_path, exist_ok=True)
-        os.makedirs(plot_dir, exist_ok=True)
+    # Determine optimization level
+    optimization_level = session.get('optimization_level', 'ultra')  # ultra, optimized, standard
+    use_ultra_optimization = optimization_level == 'ultra'
+    use_optimized_processing = optimization_level in ['ultra', 'optimized']
+    
+    if use_ultra_optimization:
+        logger.info("Using ULTRA-optimized RNA analysis system")
+        socketio.emit('update_progress', {"progress": 50, "message": "Starting ULTRA-optimized analysis..."}, to=session_id)
         
-        logger.info(f"Starting calculation for {plot} - estimated time: {planned_calculations[plot].estimated_time}s")
-
         try:
-            job = None
-            plot_style = "default"
+            # Use ultra-optimized analysis
+            ultra_job = ultra_optimized_rna_analysis.apply_async(
+                args=[native_pdb_path, traj_xtc_path, download_path, download_plot, session_id, optimized_order, 'maximum']
+            )
             
-            if plot == "RMSD":
-                job = generate_rmsd_plot.apply_async(args=[native_pdb_path, traj_xtc_path, files_path, plot_dir, session_id])
-                plot_style = "scatter2"
-            elif plot == "ERMSD":
-                job = generate_ermsd_plot.apply_async(args=[native_pdb_path, traj_xtc_path, files_path, plot_dir, session_id])
-                plot_style = "scatter"
-            elif plot == "TORSION":
-                torsion_params = {
-                    "torsionResidue": session.get("torsionResidue", 0),
-                    "torsionResidues": session.get("torsionResidues", []),
-                    "torsionAngles": session.get("torsionAngles", []),
-                    "torsionMode": session.get("torsionMode", "single")
-                }
-                job = generate_torsion_plot.apply_async(args=[native_pdb_path, traj_xtc_path, files_path, plot_dir, session_id, torsion_params])
-                plot_style = "torsion"
-            elif plot == "SEC_STRUCTURE":
-                job = generate_sec_structure_plot.apply_async(args=[native_pdb_path, traj_xtc_path, files_path, plot_dir, session_id])
-                plot_style = "bar"
-            elif plot == "DOTBRACKET":
-                job = generate_dotbracket_plot.apply_async(args=[native_pdb_path, traj_xtc_path, files_path, plot_dir, session_id])
-                plot_style = "dotbracket"
-            elif plot == "ARC":
-                job = generate_arc_plot.apply_async(args=[native_pdb_path, traj_xtc_path, files_path, plot_dir, session_id])
-                plot_style = "arc"
-            elif plot == "CONTACT_MAPS":
-                job = generate_contact_map_plot.apply_async(args=[native_pdb_path, traj_xtc_path, files_path, plot_dir, generate_data_path, session_id])
-                plot_style = "CONTACT_MAPS"
-            elif plot == "ANNOTATE":
-                job = generate_annotate_plot.apply_async(args=[native_pdb_path, traj_xtc_path, files_path, plot_dir, session_id])
-                plot_style = "annotate"
-            elif plot == "DS_MOTIF":
-                job = generate_ds_motif_plot.apply_async(args=[native_pdb_path, traj_xtc_path, files_path, plot_dir, session_id])
-                plot_style = "motif"
-            elif plot == "SS_MOTIF":
-                job = generate_ss_motif_plot.apply_async(args=[native_pdb_path, traj_xtc_path, files_path, plot_dir, session_id])
-                plot_style = "motif"
-            elif plot == "JCOUPLING":
-                job = generate_jcoupling_plot.apply_async(args=[native_pdb_path, traj_xtc_path, files_path, plot_dir, session_id])
-                plot_style = "scatter"
-            elif plot == "ESCORE":
-                job = generate_escore_plot.apply_async(args=[native_pdb_path, traj_xtc_path, files_path, plot_dir, session_id])
-                plot_style = "scatter"
-            elif plot == "LANDSCAPE":
-                landscape_params = [
-                    session.get("landscape_stride", 1),
-                    session.get("landscape_first_component", 1),
-                    session.get("landscape_second_component", 1)
-                ]
-                job = generate_landscape_plot.apply_async(args=[native_pdb_path, traj_xtc_path, files_path, plot_dir, session_id, landscape_params, generate_data_path])
-                plot_style = "surface"
-            elif plot == "BASE_PAIRING":
-                job = generate_2Dpairing_plot.apply_async(args=[native_pdb_path, traj_xtc_path, files_path, plot_dir, session_id])
-                plot_style = "2Dpairing"
-            else:
-                logger.warning(f"Unknown plot type: {plot}")
-                continue
-                
-            if job:
-                plot_data.append([plot, plot_style, job.id])
-                logger.info(f"Enqueued {plot} calculation with job ID: {job.id}")
-                
+            # Monitor progress with faster updates for ultra optimization
+            progress_step = 40 / len(optimized_order)
+            current_progress = 50
+            
+            while not ultra_job.ready():
+                socketio.sleep(1.5)  # Faster updates
+                current_progress = min(90, current_progress + progress_step/3)
+                socketio.emit('update_progress', {
+                    "progress": int(current_progress), 
+                    "message": f"ULTRA-processing {len(optimized_order)} plots with maximum optimization..."
+                }, to=session_id)
+            
+            ultra_results = ultra_job.get()
+            
+            # Extract performance metadata
+            perf_metadata = ultra_results.pop('_performance_metadata', {})
+            logger.info(f"ULTRA optimization performance: {perf_metadata}")
+            
+            # Convert results to expected format
+            plot_data = []
+            for plot in optimized_order:
+                if plot in ultra_results:
+                    plot_style = get_plot_style(plot)
+                    plot_data.append([plot, ultra_results[plot], plot_style])
+                    logger.info(f"Completed ULTRA-optimized {plot} calculation")
+            
+            socketio.emit('update_progress', {"progress": 90, "message": f"ULTRA optimization completed in {perf_metadata.get('total_time', 0):.1f}s"}, to=session_id)
+            logger.info(f"ULTRA optimization completed {len(plot_data)} plots")
+            
         except Exception as e:
-            logger.error(f"Failed to enqueue {plot} calculation: {str(e)}")
-            socketio.emit('update_progress', {"progress": 60, "message": f"Error enqueueing {plot}: {str(e)}"}, to=session_id)
+            logger.error(f"ULTRA optimization failed, falling back to standard optimization: {e}")
+            use_ultra_optimization = False
+            use_optimized_processing = True
+    
+    if use_optimized_processing and not use_ultra_optimization:
+        logger.info("Using standard optimized batch computation system")  
+        socketio.emit('update_progress', {"progress": 50, "message": "Starting optimized batch computations..."}, to=session_id)
+        
+        try:
+            # Use batch computation coordinator
+            batch_job = batch_computation_coordinator.apply_async(
+                args=[native_pdb_path, traj_xtc_path, download_path, download_plot, session_id, optimized_order]
+            )
+            
+            # Monitor progress
+            progress_step = 40 / len(optimized_order)
+            current_progress = 50
+            
+            # Wait for completion with progress updates
+            while not batch_job.ready():
+                socketio.sleep(2)
+                current_progress = min(90, current_progress + progress_step/4)
+                socketio.emit('update_progress', {
+                    "progress": int(current_progress), 
+                    "message": f"Processing {len(optimized_order)} plots with optimization..."
+                }, to=session_id)
+            
+            batch_results = batch_job.get()
+            
+            # Convert batch results to expected format
+            plot_data = []
+            for plot in optimized_order:
+                if plot in batch_results:
+                    plot_style = get_plot_style(plot)  # Helper function to get style
+                    plot_data.append([plot, batch_results[plot], plot_style])
+                    logger.info(f"Completed optimized {plot} calculation")
+            
+            socketio.emit('update_progress', {"progress": 90, "message": "Optimized batch processing completed."}, to=session_id)
+            logger.info(f"Optimized batch processing completed {len(plot_data)} plots")
+            
+        except Exception as e:
+            logger.error(f"Optimized processing failed, falling back to standard processing: {e}")
+            use_optimized_processing = False
+    
+    if not use_optimized_processing:
+        logger.info("Using standard individual task processing")
+        plot_data = []
+        for plot in optimized_order:
+            files_path = os.path.join(download_path, plot)
+            plot_dir = os.path.join(download_plot, plot)
+            os.makedirs(files_path, exist_ok=True)
+            os.makedirs(plot_dir, exist_ok=True)
+        
+            logger.info(f"Starting calculation for {plot} - estimated time: {planned_calculations[plot].estimated_time}s")
 
-        socketio.emit('update_progress', {"progress": 60, "message": f"{plot} plot enqueued."}, to=session_id)
-        socketio.sleep(0.1)  # Ensure the message is sent
+            try:
+                job = None
+                plot_style = "default"
+            
+                if plot == "RMSD":
+                    job = generate_rmsd_plot.apply_async(args=[native_pdb_path, traj_xtc_path, files_path, plot_dir, session_id])
+                    plot_style = "scatter2"
+                elif plot == "ERMSD":
+                    job = generate_ermsd_plot.apply_async(args=[native_pdb_path, traj_xtc_path, files_path, plot_dir, session_id])
+                    plot_style = "scatter"
+                elif plot == "TORSION":
+                    torsion_params = {
+                        "torsionResidue": session.get("torsionResidue", 0),
+                        "torsionResidues": session.get("torsionResidues", []),
+                        "torsionAngles": session.get("torsionAngles", []),
+                        "torsionMode": session.get("torsionMode", "single")
+                    }
+                    job = generate_torsion_plot.apply_async(args=[native_pdb_path, traj_xtc_path, files_path, plot_dir, session_id, torsion_params])
+                    plot_style = "torsion"
+                elif plot == "SEC_STRUCTURE":
+                    job = generate_sec_structure_plot.apply_async(args=[native_pdb_path, traj_xtc_path, files_path, plot_dir, session_id])
+                    plot_style = "bar"
+                elif plot == "DOTBRACKET":
+                    job = generate_dotbracket_plot.apply_async(args=[native_pdb_path, traj_xtc_path, files_path, plot_dir, session_id])
+                    plot_style = "dotbracket"
+                elif plot == "ARC":
+                    job = generate_arc_plot.apply_async(args=[native_pdb_path, traj_xtc_path, files_path, plot_dir, session_id])
+                    plot_style = "arc"
+                elif plot == "CONTACT_MAPS":
+                    job = generate_contact_map_plot.apply_async(args=[native_pdb_path, traj_xtc_path, files_path, plot_dir, generate_data_path, session_id])
+                    plot_style = "CONTACT_MAPS"
+                elif plot == "ANNOTATE":
+                    job = generate_annotate_plot.apply_async(args=[native_pdb_path, traj_xtc_path, files_path, plot_dir, session_id])
+                    plot_style = "annotate"
+                elif plot == "DS_MOTIF":
+                    job = generate_ds_motif_plot.apply_async(args=[native_pdb_path, traj_xtc_path, files_path, plot_dir, session_id])
+                    plot_style = "motif"
+                elif plot == "SS_MOTIF":
+                    job = generate_ss_motif_plot.apply_async(args=[native_pdb_path, traj_xtc_path, files_path, plot_dir, session_id])
+                    plot_style = "motif"
+                elif plot == "JCOUPLING":
+                    job = generate_jcoupling_plot.apply_async(args=[native_pdb_path, traj_xtc_path, files_path, plot_dir, session_id])
+                    plot_style = "scatter"
+                elif plot == "ESCORE":
+                    job = generate_escore_plot.apply_async(args=[native_pdb_path, traj_xtc_path, files_path, plot_dir, session_id])
+                    plot_style = "scatter"
+                elif plot == "LANDSCAPE":
+                    landscape_params = [
+                        session.get("landscape_stride", 1),
+                        session.get("landscape_first_component", 1),
+                        session.get("landscape_second_component", 1)
+                    ]
+                    job = generate_landscape_plot.apply_async(args=[native_pdb_path, traj_xtc_path, files_path, plot_dir, session_id, landscape_params, generate_data_path])
+                    plot_style = "surface"
+                elif plot == "BASE_PAIRING":
+                    job = generate_2Dpairing_plot.apply_async(args=[native_pdb_path, traj_xtc_path, files_path, plot_dir, session_id])
+                    plot_style = "2Dpairing"
+                else:
+                    logger.warning(f"Unknown plot type: {plot}")
+                    continue
+                    
+                if job:
+                    plot_data.append([plot, plot_style, job.id])
+                    logger.info(f"Enqueued {plot} calculation with job ID: {job.id}")
+                
+            except Exception as e:
+                logger.error(f"Failed to enqueue {plot} calculation: {str(e)}")
+                socketio.emit('update_progress', {"progress": 60, "message": f"Error enqueueing {plot}: {str(e)}"}, to=session_id)
+
+            socketio.emit('update_progress', {"progress": 60, "message": f"{plot} plot enqueued."}, to=session_id)
+            socketio.sleep(0.1)  # Ensure the message is sent
 
     socketio.emit('update_progress', {"progress": 70, "message": "Waiting for plot jobs to complete..."}, to=session_id)
     socketio.sleep(0.1)  # Ensure the message is sent
@@ -744,7 +930,7 @@ def view_trajectory(session_id, native_pdb, traj_xtc):
     
     for plot_type, plot_style, job_id in plot_data:
         try:
-            job = app2.AsyncResult(job_id)
+            job = app3.AsyncResult(job_id)
             start_time = time.time()
             
             # Wait with timeout and progress updates
