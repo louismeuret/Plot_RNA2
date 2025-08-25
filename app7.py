@@ -63,7 +63,7 @@ import io
 import zipfile
 
 # Import ultra-optimized tasks with caching (all tasks including batch coordinator)
-from tasks_celery_ultra_optimized import *
+from tasks_celery_simple import *
 from computation_cache import computation_cache
 from celery.result import AsyncResult
 import threading
@@ -759,8 +759,8 @@ def view_trajectory(session_id, native_pdb, traj_xtc):
         
         try:
             # Use ultra-optimized analysis
-            ultra_job = ultra_optimized_rna_analysis.apply_async(
-                args=[native_pdb_path, traj_xtc_path, download_path, download_plot, session_id, optimized_order, 'maximum']
+            ultra_job = simple_rna_analysis.apply_async(
+                args=[native_pdb_path, traj_xtc_path, optimized_order, session_id]
             )
             
             # Monitor progress with faster updates for ultra optimization
@@ -930,7 +930,7 @@ def view_trajectory(session_id, native_pdb, traj_xtc):
     
     for plot_type, plot_style, job_id in plot_data:
         try:
-            job = app3.AsyncResult(job_id)
+            job = app.AsyncResult(job_id)
             start_time = time.time()
             
             # Wait with timeout and progress updates

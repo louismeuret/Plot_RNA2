@@ -184,8 +184,10 @@ def computeFoldingTime(rmsd, dt, method='simple',threshold = 2, tolerance = 0.5,
     return -1 if fold_frame < 0 else fold_frame*dt
 
 def downsampleOverDistance(cmap_traj, native_cmap, distance=0.1, margin_factor=1, rev=False, return_index=False):
-    native_cmap = np.array(native_cmap, copy=False, ndmin=2, dtype=np.float32)[0]
-    cmap_traj = np.array(cmap_traj, copy=False, ndmin=2, dtype=np.float32)
+    native_cmap = np.asarray(native_cmap, dtype=np.float32)
+    native_cmap = np.atleast_2d(native_cmap)[0]
+    cmap_traj = np.asarray(cmap_traj, dtype=np.float32)
+    cmap_traj = np.atleast_2d(cmap_traj)
     
     #cmaps = [native_cmap] if rev else [cmap_traj[0]]
     cmaps = [cmap_traj[-1]] if rev else [cmap_traj[0]]
@@ -265,9 +267,12 @@ def loadEnsemble(directory, kind = 'legacy', specification = None):
     return None
 
 def saveCmapNew(f_name, cmap_list, indexes, lambdas, colvar):
-    cmap_list = np.array(cmap_list, copy=False, ndmin=2)
-    lambdas = np.array(lambdas, copy=False, ndmin=1)
-    colvar = np.array(colvar, copy=False, ndmin=1)
+    cmap_list = np.asarray(cmap_list)
+    cmap_list = np.atleast_2d(cmap_list)
+    lambdas = np.asarray(lambdas)
+    lambdas = np.atleast_1d(lambdas)
+    colvar = np.asarray(colvar)
+    colvar = np.atleast_1d(colvar)
 
     resort_indexes = np.lexsort((indexes[:,1], indexes[:,0]))
     indexes = indexes[resort_indexes]
@@ -276,7 +281,7 @@ def saveCmapNew(f_name, cmap_list, indexes, lambdas, colvar):
     n_frames = cmap_list.shape[0]
     ext_indexes = np.unique(np.array(indexes, dtype=np.uint32).flatten())
     
-    indexes_t = np.array(indexes, copy=False, dtype=np.uint32)[:,::-1]
+    indexes_t = np.asarray(indexes, dtype=np.uint32)[:,::-1]
     upper2lower = np.lexsort((indexes_t[:,1], indexes_t[:,0]))
     indexes_t = indexes_t[upper2lower,:]
     
