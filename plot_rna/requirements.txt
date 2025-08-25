@@ -1,0 +1,44 @@
+# Plot RNA - Production Requirements
+# Core web framework
+Flask==2.3.3
+Flask-SocketIO==5.3.6
+
+# Task queue and caching
+celery==5.3.4
+redis==5.0.1
+
+# Scientific computing
+numpy==1.24.3
+pandas==2.0.3
+matplotlib==3.7.2
+plotly==5.17.0
+
+# Molecular dynamics and analysis
+MDAnalysis==2.6.1
+mdtraj==1.9.9
+barnaba==0.1.7
+
+# Performance optimization
+numba==0.58.1
+orjson==3.9.9
+
+# File handling and utilities
+Pillow==10.0.1
+h5py==3.9.0
+
+# Web server (production)
+gunicorn==21.2.0
+eventlet==0.33.3
+
+# Development and testing (optional)
+pytest==7.4.2
+pytest-cov==4.1.0
+black==23.9.1
+flake8==6.1.0
+
+# Security
+cryptography==41.0.7
+
+# System utilities
+psutil==5.9.6
+click==8.1.7

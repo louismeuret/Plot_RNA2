@@ -303,24 +303,83 @@
             
             console.log('Cache: Processing files:', { trajFileName, nativeFileName });
 
+            // Helper function to process cache results and create Blob URLs
+            function processFileResult(data, fileName, fromCache = true) {
+                if (!data) {
+                    return {
+                        url: null,
+                        fromCache: false,
+                        fallback: true,
+                        size: 0
+                    };
+                }
+
+                // If data is ArrayBuffer from cache, convert to Blob URL
+                if (data instanceof ArrayBuffer) {
+                    const contentType = fileName.endsWith('.pdb') ? 'text/plain' : 'application/octet-stream';
+                    const blob = new Blob([data], { type: contentType });
+                    const url = URL.createObjectURL(blob);
+                    
+                    return {
+                        url: url,
+                        fromCache: fromCache,
+                        fallback: false,
+                        size: data.byteLength
+                    };
+                }
+                
+                // If data is already processed (from downloadAndCache), return as-is
+                return data;
+            }
+
             // Load structure file (topology) - prioritize cache from upload
             console.log('Cache: Loading structure file...');
-            let structureResult = await cache.getFile(sessionId, nativeFileName);
-            if (!structureResult) {
+            let structureData = await cache.getFile(sessionId, nativeFileName);
+            let structureResult;
+            
+            if (!structureData) {
                 console.log('Cache: Structure not found in upload cache, downloading from server...');
                 structureResult = await cache.downloadAndCache(CONFIG.nativePdb, sessionId, nativeFileName);
+                // downloadAndCache should return processed data, but let's ensure it has the right format
+                if (structureResult instanceof ArrayBuffer) {
+                    structureResult = processFileResult(structureResult, nativeFileName, false);
+                } else if (!structureResult || !structureResult.url) {
+                    // Fallback to server URL
+                    structureResult = {
+                        url: CONFIG.nativePdb,
+                        fromCache: false,
+                        fallback: true,
+                        size: 0
+                    };
+                }
             } else {
                 console.log('Cache: Using structure from upload cache!');
+                structureResult = processFileResult(structureData, nativeFileName, true);
             }
             
             // Load trajectory file (coordinates) - prioritize cache from upload  
             console.log('Cache: Loading trajectory file...');
-            let trajectoryResult = await cache.getFile(sessionId, trajFileName);
-            if (!trajectoryResult) {
+            let trajectoryData = await cache.getFile(sessionId, trajFileName);
+            let trajectoryResult;
+            
+            if (!trajectoryData) {
                 console.log('Cache: Trajectory not found in upload cache, downloading from server...');
                 trajectoryResult = await cache.downloadAndCache(CONFIG.trajXtc, sessionId, trajFileName);
+                // downloadAndCache should return processed data, but let's ensure it has the right format
+                if (trajectoryResult instanceof ArrayBuffer) {
+                    trajectoryResult = processFileResult(trajectoryResult, trajFileName, false);
+                } else if (!trajectoryResult || !trajectoryResult.url) {
+                    // Fallback to server URL
+                    trajectoryResult = {
+                        url: CONFIG.trajXtc,
+                        fromCache: false,
+                        fallback: true,
+                        size: 0
+                    };
+                }
             } else {
                 console.log('Cache: Using trajectory from upload cache!');
+                trajectoryResult = processFileResult(trajectoryData, trajFileName, true);
             }
 
             // Log loading results

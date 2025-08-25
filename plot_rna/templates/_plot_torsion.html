@@ -1,0 +1,20 @@
+<div class="box mt-5 plot-container">
+  <div class="flex-container">
+    <div id="{{ plot_info[0] }}" class="plot"></div>
+    <i class="drag-handle" data-lucide="grip"></i>
+    <i class="expand-icon" data-lucide="expand"></i>
+  </div>
+  <div id="{{ plot_info[1] }}"></div>
+  <div>
+    <img src="{{ url_for('static', filename='images/nucl.png') }}" alt="Torsion Image" class="torsion-image">
+  </div>
+  <script>
+    var plotData = {{ plot_info[2] | safe }};
+    var plotElement = document.getElementById('{{ plot_info[1] }}');
+    Plotly.newPlot(plotElement, plotData, {}).then(function() {
+      Plotly.Plots.resize(plotElement);
+    });
+  </script>
+  <a href="{{ url_for('download_plot_data', plot_id=plot_info[0], session_id=session_id) }}" class="button is-link">Download {{ plot_info[0] }} Data</a>
+  <a href="{{ url_for('download_plot', plot_id=plot_info[0], session_id=session_id) }}" class="button is-link">Download Plot</a>
+</div>

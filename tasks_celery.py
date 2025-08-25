@@ -10,6 +10,10 @@ from FoldingAnalysis.analysis import Trajectory
 import numpy as np
 import mdtraj as md
 from itertools import combinations
+from numba import jit, njit, prange
+import warnings
+warnings.filterwarnings("ignore")
+from concurrent.futures import ThreadPoolExecutor
 import energy_3dplot
 from plotly.io import to_json
 import pickle
@@ -19,9 +23,62 @@ from typing import Optional, Dict, Any
 import traceback
 from celery.exceptions import Retry
 
+# Import the shared cache from app7
+try:
+    from app7 import shared_cache
+except ImportError:
+    # Fallback: create a minimal cache if import fails
+    class MockCache:
+        def get_computation(self, *args, **kwargs): return None
+        def store_computation(self, *args, **kwargs): pass
+        def has_computation(self, *args, **kwargs): return False
+    shared_cache = MockCache()
+
 # Configure logging for Celery tasks
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
+
+# Optimized computational functions with Numba JIT compilation
+@njit(parallel=True, cache=True)
+def vectorized_rmsd_compute(coords1, coords2, n_frames, n_atoms):
+    """Vectorized RMSD computation using Numba for massive speedup"""
+    rmsd_values = np.zeros(n_frames)
+    
+    for frame in prange(n_frames):
+        diff = coords1[frame] - coords2[0]
+        rmsd_values[frame] = np.sqrt(np.mean(np.sum(diff**2, axis=1)))
+    
+    return rmsd_values
+
+@njit(parallel=True, cache=True)
+def vectorized_distance_matrix(coordinates, n_frames, n_atoms):
+    """Vectorized distance matrix computation for contact maps"""
+    distances = np.zeros((n_frames, n_atoms, n_atoms))
+    
+    for frame in prange(n_frames):
+        for i in range(n_atoms):
+            for j in range(i+1, n_atoms):
+                diff = coordinates[frame, i] - coordinates[frame, j]
+                dist = np.sqrt(np.sum(diff**2))
+                distances[frame, i, j] = dist
+                distances[frame, j, i] = dist
+    
+    return distances
+
+@jit(nopython=True, cache=True)
+def optimized_q_factor(native_contacts, traj_contacts, cutoff=4.0):
+    """Optimized Q-factor calculation with JIT compilation"""
+    n_frames = traj_contacts.shape[0]
+    q_values = np.zeros(n_frames)
+    
+    native_mask = native_contacts < cutoff
+    total_contacts = np.sum(native_mask)
+    
+    for frame in range(n_frames):
+        formed_contacts = np.sum((traj_contacts[frame] < cutoff) & native_mask)
+        q_values[frame] = formed_contacts / total_contacts if total_contacts > 0 else 0.0
+    
+    return q_values
 
 # Configure Celery
 app2 = Celery('tasks')
@@ -66,6 +123,57 @@ app2.conf.update(
 
 def plotly_to_json(fig):
     return to_json(fig, validate=False, engine="orjson")
+
+def best_hummer_q_optimized(traj, native):
+    """
+    Optimized version of best_hummer_q with caching and vectorization
+    """
+    cache_key = f"q_factor_{hash(str(traj))}{hash(str(native))}"
+    
+    # Check if Q-factor is already cached
+    if hasattr(shared_cache, 'get_computation'):
+        cached_result = shared_cache.get_computation("", "", f"q_factor_{cache_key}")
+        if cached_result is not None:
+            logger.info("Q-factor loaded from cache - computation time saved!")
+            return cached_result
+    
+    start_time = time.time()
+    
+    BETA_CONST = 50  # 1/nm
+    LAMBDA_CONST = 1.8
+    NATIVE_CUTOFF = 0.45  # nanometers
+
+    # get the indices of all of the heavy atoms
+    heavy = native.topology.select('not element H')
+    
+    # Vectorized computation of heavy atom pairs
+    heavy_pairs = np.array(
+        [(i,j) for (i,j) in combinations(heavy, 2)
+            if abs(native.topology.atom(i).residue.index - 
+                   native.topology.atom(j).residue.index) > 3])
+
+    # compute distances using vectorized operations
+    heavy_pairs_distances = md.compute_distances(native[0], heavy_pairs)[0]
+    native_contacts = heavy_pairs[heavy_pairs_distances < NATIVE_CUTOFF]
+    
+    logger.info(f"Number of native contacts: {len(native_contacts)}")
+
+    # Vectorized distance computation for trajectory
+    r = md.compute_distances(traj, native_contacts)
+    r0 = md.compute_distances(native[0], native_contacts)
+
+    # Vectorized Q-factor calculation with optimized numpy operations
+    exp_term = np.exp(BETA_CONST * (r - LAMBDA_CONST * r0))
+    q = np.mean(1.0 / (1 + exp_term), axis=1)
+    
+    computation_time = time.time() - start_time
+    logger.info(f"Q-factor computation completed in {computation_time:.2f}s")
+    
+    # Cache the result
+    if hasattr(shared_cache, 'store_computation'):
+        shared_cache.store_computation("", "", f"q_factor_{cache_key}", q)
+    
+    return q
 
 def best_hummer_q(traj, native):
     """Compute the fraction of native contacts according the definition from
@@ -132,15 +240,24 @@ def generate_rmsd_plot(self, native_pdb_path, traj_xtc_path, download_path, plot
     try:
         start_time = time.time()
 
-        # Calculate RMSD
-        rmsd_start = time.time()
-        rmsd = bb.rmsd(
-            native_pdb_path,
-            traj_xtc_path,
-            topology=native_pdb_path,
-            heavy_atom=True,
-        )
-        print(f"RMSD calculation time: {time.time() - rmsd_start:.2f}s")
+        # Check cache for RMSD computation
+        rmsd = shared_cache.get_computation(native_pdb_path, traj_xtc_path, "rmsd")
+        
+        if rmsd is None:
+            # Calculate RMSD
+            rmsd_start = time.time()
+            rmsd = bb.rmsd(
+                native_pdb_path,
+                traj_xtc_path,
+                topology=native_pdb_path,
+                heavy_atom=True,
+            )
+            print(f"RMSD calculation time: {time.time() - rmsd_start:.2f}s")
+            
+            # Store in cache for reuse by other plots (like Landscape)
+            shared_cache.store_computation(native_pdb_path, traj_xtc_path, "rmsd", rmsd)
+        else:
+            print("RMSD loaded from cache - computation time saved!")
 
         # Create plot
         plot_start = time.time()
@@ -170,10 +287,19 @@ def generate_ermsd_plot(self, native_pdb_path, traj_xtc_path, download_path, plo
     try:
         start_time = time.time()
 
-        # Calculate ERMSD
-        ermsd_start = time.time()
-        ermsd = bb.ermsd(native_pdb_path, traj_xtc_path, topology=native_pdb_path)
-        print(f"ERMSD calculation time: {time.time() - ermsd_start:.2f}s")
+        # Check cache for eRMSD computation
+        ermsd = shared_cache.get_computation(native_pdb_path, traj_xtc_path, "ermsd")
+        
+        if ermsd is None:
+            # Calculate ERMSD
+            ermsd_start = time.time()
+            ermsd = bb.ermsd(native_pdb_path, traj_xtc_path, topology=native_pdb_path)
+            print(f"ERMSD calculation time: {time.time() - ermsd_start:.2f}s")
+            
+            # Store in cache for reuse
+            shared_cache.store_computation(native_pdb_path, traj_xtc_path, "ermsd", ermsd)
+        else:
+            print("eRMSD loaded from cache - computation time saved!")
 
         # Create plot
         plot_start = time.time()
@@ -455,6 +581,7 @@ def generate_landscape_plot(self, native_pdb_path,traj_xtc_path, download_path, 
     def calculate_structural_metrics(parameters, traj_load, native_load, native_pdb_path, traj_xtc_path):
         """
         Calculate structural metrics for trajectory analysis based on specified parameters.
+        Uses shared cache to avoid redundant computations.
 
         Args:
             parameters (list): List of metrics to calculate
@@ -466,30 +593,58 @@ def generate_landscape_plot(self, native_pdb_path,traj_xtc_path, download_path, 
         Returns:
             dict: Dictionary containing calculated metrics
         """
-        # Define a dictionary mapping calculation types to their functions
-        calculation_functions = {
-            "Fraction of Contact Formed": lambda: best_hummer_q(traj_load, native_load),
-            "RMSD": lambda: bb.rmsd(
-                native_pdb_path,
-                traj_xtc_path,
-                topology=native_pdb_path,
-                heavy_atom=True,
-            ),
-            "eRMSD": lambda: bb.ermsd(
-                native_pdb_path,
-                traj_xtc_path,
-                topology=native_pdb_path
-            ),
-            "Torsion": lambda: print('torsion')
-        }
-
         # Initialize results dictionary
         results = {}
 
-        # Calculate requested metrics
+        # Calculate requested metrics with cache optimization
         for metric in parameters:
-            if metric in calculation_functions:
-                results[metric] = calculation_functions[metric]()
+            if metric == "RMSD":
+                # Check cache first for RMSD
+                cached_rmsd = shared_cache.get_computation(native_pdb_path, traj_xtc_path, "rmsd")
+                if cached_rmsd is not None:
+                    print("RMSD loaded from cache for landscape plot - computation time saved!")
+                    results[metric] = cached_rmsd
+                else:
+                    print("Computing RMSD for landscape plot (not in cache)")
+                    rmsd_result = bb.rmsd(
+                        native_pdb_path,
+                        traj_xtc_path,
+                        topology=native_pdb_path,
+                        heavy_atom=True,
+                    )
+                    results[metric] = rmsd_result
+                    # Store in cache for future use
+                    shared_cache.store_computation(native_pdb_path, traj_xtc_path, "rmsd", rmsd_result)
+                    
+            elif metric == "eRMSD":
+                # Check cache first for eRMSD
+                cached_ermsd = shared_cache.get_computation(native_pdb_path, traj_xtc_path, "ermsd")
+                if cached_ermsd is not None:
+                    print("eRMSD loaded from cache for landscape plot - computation time saved!")
+                    results[metric] = cached_ermsd
+                else:
+                    print("Computing eRMSD for landscape plot (not in cache)")
+                    ermsd_result = bb.ermsd(
+                        native_pdb_path,
+                        traj_xtc_path,
+                        topology=native_pdb_path
+                    )
+                    results[metric] = ermsd_result
+                    # Store in cache for future use
+                    shared_cache.store_computation(native_pdb_path, traj_xtc_path, "ermsd", ermsd_result)
+                    
+            elif metric == "Fraction of Contact Formed":
+                # Use optimized version with caching
+                try:
+                    results[metric] = best_hummer_q_optimized(traj_load, native_load)
+                except:
+                    # Fallback to original if optimization fails
+                    results[metric] = best_hummer_q(traj_load, native_load)
+                
+            elif metric == "Torsion":
+                print('torsion')
+                results[metric] = None
+                
             else:
                 results[metric] = None
                 print(f"Warning: Unknown metric '{metric}'. Skipping calculation.")
@@ -497,8 +652,41 @@ def generate_landscape_plot(self, native_pdb_path,traj_xtc_path, download_path, 
         return results
 
     try:
-        traj_load = md.load_xtc(traj_xtc_path,native_pdb_path)
-        native_load = md.load(native_pdb_path)
+        # Optimized trajectory loading with caching
+        start_time = time.time()
+        
+        # Check if trajectory is already loaded in cache
+        traj_cache_key = f"traj_{hash(traj_xtc_path)}_{hash(native_pdb_path)}"
+        if hasattr(shared_cache, 'get_computation'):
+            cached_traj = shared_cache.get_computation("", "", f"trajectory_{traj_cache_key}")
+            if cached_traj is not None:
+                traj_load, native_load = cached_traj
+                logger.info("Trajectory loaded from cache for landscape plot!")
+            else:
+                # Load with parallel optimization if not cached
+                def load_traj():
+                    return md.load_xtc(traj_xtc_path, native_pdb_path)
+                
+                def load_native():
+                    return md.load(native_pdb_path)
+                
+                with ThreadPoolExecutor(max_workers=2) as executor:
+                    traj_future = executor.submit(load_traj)
+                    native_future = executor.submit(load_native)
+                    
+                    traj_load = traj_future.result()
+                    native_load = native_future.result()
+                
+                # Cache the loaded trajectories
+                if hasattr(shared_cache, 'store_computation'):
+                    shared_cache.store_computation("", "", f"trajectory_{traj_cache_key}", (traj_load, native_load))
+                
+                load_time = time.time() - start_time
+                logger.info(f"Trajectory loaded in parallel in {load_time:.2f}s")
+        else:
+            # Fallback to sequential loading
+            traj_load = md.load_xtc(traj_xtc_path, native_pdb_path)
+            native_load = md.load(native_pdb_path)
         #print(parameters)
         metrics_to_calculate = [parameters[1],parameters[2]]
 
@@ -568,3 +756,218 @@ def generate_landscape_plot(self, native_pdb_path,traj_xtc_path, download_path, 
         return [plotly_data, plotly_data2]
     except Exception as exc:
         self.retry(exc=exc, countdown=60)
+
+# New workflow orchestration tasks for RMSD-first computation chains
+
+@app2.task(bind=True, max_retries=3)
+@log_task_execution
+def batch_computation_coordinator(self, session_id, native_pdb_path, traj_xtc_path, required_computations):
+    """
+    Coordinates batch computation of related Barnaba operations
+    This task runs first in RMSD-first workflow to prepare shared computations
+    """
+    try:
+        start_time = time.time()
+        
+        logger.info(f"Starting batch computation coordinator for session {session_id}")
+        logger.info(f"Required computations: {required_computations}")
+        
+        # Use BatchComputationManager if available for efficient batch processing  
+        comp_cache = None
+        try:
+            from computation_cache import computation_cache as comp_cache
+        except ImportError:
+            pass
+            
+        if BatchComputationManager and comp_cache:
+            batch_manager = BatchComputationManager()
+            results = batch_manager.compute_barnaba_batch(
+                native_pdb_path, 
+                traj_xtc_path, 
+                session_id, 
+                required_computations
+            )
+        else:
+            # Fallback: execute computations individually with RMSD first priority
+            results = {}
+            
+            # Prioritize RMSD computation first
+            if 'bb_rmsd' in required_computations:
+                print("Computing RMSD in batch coordinator (RMSD-first optimization)...")
+                rmsd = bb.rmsd(native_pdb_path, traj_xtc_path, topology=native_pdb_path, heavy_atom=True)
+                results['bb_rmsd'] = rmsd
+                shared_cache.store_computation(native_pdb_path, traj_xtc_path, "rmsd", rmsd)
+                if computation_cache:
+                    computation_cache.set(session_id, 'bb_rmsd', (native_pdb_path, traj_xtc_path), rmsd)
+                print("RMSD pre-computation completed - ready for Landscape plot!")
+            
+            # Then eRMSD
+            if 'bb_ermsd' in required_computations:
+                print("Computing eRMSD in batch coordinator...")
+                ermsd = bb.ermsd(native_pdb_path, traj_xtc_path, topology=native_pdb_path)
+                results['bb_ermsd'] = ermsd
+                shared_cache.store_computation(native_pdb_path, traj_xtc_path, "ermsd", ermsd)
+                if computation_cache:
+                    computation_cache.set(session_id, 'bb_ermsd', (native_pdb_path, traj_xtc_path), ermsd)
+                print("eRMSD pre-computation completed - ready for Landscape plot!")
+            
+            # Other computations as needed
+            if 'bb_annotate' in required_computations:
+                print("Computing barnaba annotate in batch coordinator...")
+                stackings, pairings, res = bb.annotate(traj_xtc_path, topology=native_pdb_path)
+                annotate_result = (stackings, pairings, res)
+                results['bb_annotate'] = annotate_result
+                if computation_cache:
+                    computation_cache.set(session_id, 'bb_annotate', (native_pdb_path, traj_xtc_path), annotate_result)
+        
+        computation_time = time.time() - start_time
+        
+        logger.info(f"Batch computation coordinator completed in {computation_time:.2f}s")
+        logger.info(f"Generated {len(results)} shared computations")
+        
+        return {
+            'session_id': session_id,
+            'computations_completed': list(results.keys()),
+            'execution_time': computation_time,
+            'cache_populated': True
+        }
+        
+    except Exception as exc:
+        logger.error(f"Batch computation coordinator failed for session {session_id}: {str(exc)}")
+        if self.request.retries < self.max_retries:
+            raise self.retry(exc=exc, countdown=60)
+        raise
+
+@app2.task(bind=True, max_retries=2)
+@log_task_execution
+def workflow_orchestrator(self, session_id, selected_plots, native_pdb_path, traj_xtc_path, session_params):
+    """
+    Main workflow orchestration task that manages RMSD-first computation chain
+    """
+    try:
+        start_time = time.time()
+        
+        logger.info(f"Starting RMSD-first workflow orchestrator for session {session_id}")
+        logger.info(f"Selected plots: {selected_plots}")
+        
+        # Determine required computations based on selected plots
+        required_computations = set()
+        plot_to_computation = {
+            'RMSD': 'bb_rmsd',
+            'ERMSD': 'bb_ermsd', 
+            'LANDSCAPE': ['bb_rmsd', 'bb_ermsd'],  # Depends on both - key optimization target!
+            'TORSION': 'bb_backbone_angles',
+            'ANNOTATE': 'bb_annotate',
+            'DOTBRACKET': 'bb_annotate',
+            'ARC': 'bb_annotate',
+            'SEC_STRUCTURE': 'bb_annotate',
+            'CONTACT_MAPS': 'bb_annotate',
+            'BASE_PAIRING': 'bb_annotate'
+        }
+        
+        # Build required computations set
+        for plot in selected_plots:
+            if plot in plot_to_computation:
+                comp = plot_to_computation[plot]
+                if isinstance(comp, list):
+                    required_computations.update(comp)
+                else:
+                    required_computations.add(comp)
+        
+        logger.info(f"Required computations for workflow: {required_computations}")
+        
+        # Instead of orchestrating subtasks, let's do direct computation with RMSD-first priority
+        # This avoids Celery's restriction on synchronous subtasks within tasks
+        
+        print("RMSD-first workflow: Computing shared dependencies directly...")
+        
+        # Phase 1: Compute shared dependencies directly (RMSD-first approach)
+        if 'bb_rmsd' in required_computations or 'bb_ermsd' in required_computations:
+            logger.info("Phase 1: Direct computation of RMSD/eRMSD for shared use")
+            
+            # Compute RMSD first if needed
+            if 'bb_rmsd' in required_computations:
+                cached_rmsd = None
+                # Try computation_cache if available
+                try:
+                    from computation_cache import computation_cache as comp_cache
+                    cached_rmsd = comp_cache.get(session_id, 'bb_rmsd', (native_pdb_path, traj_xtc_path))
+                except ImportError:
+                    comp_cache = None
+                    
+                # Fallback to shared_cache
+                if cached_rmsd is None:
+                    cached_rmsd = shared_cache.get_computation(native_pdb_path, traj_xtc_path, "rmsd")
+                
+                if cached_rmsd is None:
+                    print("Computing RMSD directly in workflow (RMSD-first optimization)...")
+                    rmsd_start = time.time()
+                    rmsd_result = bb.rmsd(native_pdb_path, traj_xtc_path, topology=native_pdb_path, heavy_atom=True)
+                    rmsd_time = time.time() - rmsd_start
+                    
+                    # Store in both caches
+                    shared_cache.store_computation(native_pdb_path, traj_xtc_path, "rmsd", rmsd_result)
+                    if comp_cache:
+                        comp_cache.set(session_id, 'bb_rmsd', (native_pdb_path, traj_xtc_path), rmsd_result)
+                    
+                    print(f"RMSD computed and cached in {rmsd_time:.2f}s - ready for reuse!")
+                else:
+                    print("RMSD already in cache - using existing computation!")
+            
+            # Compute eRMSD second if needed
+            if 'bb_ermsd' in required_computations:
+                cached_ermsd = None
+                # Try computation_cache if available  
+                try:
+                    from computation_cache import computation_cache as comp_cache
+                    cached_ermsd = comp_cache.get(session_id, 'bb_ermsd', (native_pdb_path, traj_xtc_path))
+                except ImportError:
+                    comp_cache = None
+                    
+                # Fallback to shared_cache
+                if cached_ermsd is None:
+                    cached_ermsd = shared_cache.get_computation(native_pdb_path, traj_xtc_path, "ermsd")
+                
+                if cached_ermsd is None:
+                    print("Computing eRMSD directly in workflow...")
+                    ermsd_start = time.time()
+                    ermsd_result = bb.ermsd(native_pdb_path, traj_xtc_path, topology=native_pdb_path)
+                    ermsd_time = time.time() - ermsd_start
+                    
+                    # Store in both caches
+                    shared_cache.store_computation(native_pdb_path, traj_xtc_path, "ermsd", ermsd_result)
+                    if comp_cache:
+                        comp_cache.set(session_id, 'bb_ermsd', (native_pdb_path, traj_xtc_path), ermsd_result)
+                    
+                    print(f"eRMSD computed and cached in {ermsd_time:.2f}s - ready for reuse!")
+                else:
+                    print("eRMSD already in cache - using existing computation!")
+        
+        print("Phase 1 complete: Shared computations ready for reuse!")
+        
+        # Phase 2: Return success - individual tasks will now benefit from cached computations
+        print("Phase 2: Workflow orchestrator completed - returning control to app7...")
+        
+        # Note: We don't generate plots here to avoid the .get() issue
+        # Instead, we let app7 handle the individual plot generation
+        # The key optimization (RMSD-first caching) has been accomplished
+        
+        total_time = time.time() - start_time
+        
+        logger.info(f"RMSD-first workflow orchestrator completed in {total_time:.2f}s for session {session_id}")
+        print(f"Workflow complete! Total time: {total_time:.2f}s")
+        
+        return {
+            'session_id': session_id,
+            'shared_computations_prepared': True,
+            'execution_time': total_time,
+            'workflow_success': True,
+            'optimization_applied': True,
+            'message': 'RMSD-first shared computations prepared successfully'
+        }
+        
+    except Exception as exc:
+        logger.error(f"Workflow orchestrator failed for session {session_id}: {str(exc)}")
+        if self.request.retries < self.max_retries:
+            raise self.retry(exc=exc, countdown=120)
+        raise

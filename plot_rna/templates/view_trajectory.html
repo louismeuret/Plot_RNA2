@@ -1,0 +1,447 @@
+{% extends 'layout.html' %} {% block content %}
+<section class="section trajectory-viewer">
+    <!-- Loading overlay -->
+    <div id="loading-overlay" class="loading-overlay">
+        <div class="loading-content">
+            <div class="loading-spinner"></div>
+            <p>Loading Trajectory Viewer...</p>
+        </div>
+    </div>
+
+    <!-- Header Box (loaded first) -->
+    <div id="header-box" class="header-container">
+        <!-- Title Box -->
+        <div class="title-container">
+            <h1
+                class="title"
+                class="clickable-tile"
+                onclick="window.location.href = `${CONFIG.baseUrl}`"
+                ;
+            >
+                Trajectory Viewer
+            </h1>
+        </div>
+
+        <!-- Session ID Box -->
+        <div class="session-info-container">
+            <h2 class="session">
+                Session: <span id="session-id">{{ session_id }}</span>
+            </h2>
+            <p class="session-description">
+                The session ID uniquely identifies your trajectory visualization
+                session. You can share this link with others to allow them to
+                view your session.
+            </p>
+            <button id="share-button" class="share-button">
+                Share Session
+            </button>
+        </div>
+
+        <!-- Links Box -->
+        <div class="links-container">
+            <a href="/cgu" class="nav-link">Terms & Conditions</a>
+            <a href="/authors" class="nav-link">Authors</a>
+            <a href="/documentation" class="nav-link">Help</a>
+        </div>
+    </div>
+
+    <!-- Main Content (loaded after header) -->
+    <div
+        id="main-content-container"
+        class="main-content-container columns is-multiline"
+        style="display: none"
+    >
+        <!-- First Column: Viewer and Controls -->
+        <div class="viewer-column column is-half">
+            <div class="viewer-container">
+                <!-- Loading state for viewer -->
+                <div id="viewer-loading" class="viewport-loading">
+                    <div class="loading-spinner"></div>
+                    <p>Loading 3D Viewer...</p>
+                </div>
+
+                <!-- Viewer Section -->
+                <div id="viewport" class="viewport" style="display: none"></div>
+
+                <!-- Player Controls -->
+                <div id="player-controls" class="player-controls">
+                    <input
+                        type="range"
+                        id="frame-slider"
+                        min="0"
+                        max="{{ trajectory_length - 1 }}"
+                        value="0"
+                        step="1"
+                        class="frame-slider"
+                        disabled
+                    />
+                    <input
+                        type="number"
+                        id="frame-number"
+                        min="0"
+                        max="{{ trajectory_length - 1 }}"
+                        value="0"
+                        step="1"
+                        class="frame-input"
+                        disabled
+                    />
+                    <button
+                        id="play-pause-button"
+                        class="control-button"
+                        disabled
+                    >
+                        Play
+                    </button>
+                </div>
+
+                <!-- Toggle Buttons -->
+                <div class="control-buttons">
+                    <button id="toggleSpin" class="control-button" disabled>
+                        Spin On/Off
+                    </button>
+                    <button id="toggleTheme" class="control-button" disabled>
+                        Light/Dark Background
+                    </button>
+                    <button id="toggleRunMDs" class="control-button" disabled>
+                        Start/Stop MD
+                    </button>
+                    <button
+                        id="toggleSideChains"
+                        class="control-button"
+                        disabled
+                    >
+                        Show/Hide Sidechains
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Second Column: Plots and Images -->
+        <div class="plots-column column is-half">
+            <div id="plots-loading" class="plots-loading">
+                <div class="loading-spinner"></div>
+                <p>Loading Analysis Plots...</p>
+            </div>
+            <div
+                id="sortable-container"
+                class="plots-scrollable-container"
+                style="display: none"
+            >
+                {% for plot_info in plot_data %}
+                    <div class="lazy-load-wrapper" data-plot-type="{{ plot_info[0] }}">
+                        {% if plot_info[0] == "TORSION" %}
+                            {% include '_plot_torsion.html' %}
+                        {% elif plot_info[0] == "BASE_PAIRING" %}
+                            {% include '_plot_2Dbasepairing.html' %}
+                        {% elif plot_info[0] == "ARC" %}
+                            {% include '_plot_arc.html' %}
+                        {% elif plot_info[0] == "LANDSCAPE_PLT" %}
+                            {% include '_plot_landscape.html' %}
+                        {% elif plot_info[0] == "RMSD" %}
+                            {% include '_plot_rmsd.html' %}
+                        {% elif plot_info[0] == "DOTBRACKET" %}
+                            {% include '_plot_dotbracket.html' %}
+                        {% elif plot_info[0] == "ERMSD" %}
+                            {% include '_plot_ermsd.html' %}
+                        {% elif plot_info[0] == "SEC_STRUCTURE" %}
+                            {% include '_plot_secondary_structure.html' %}
+                        {% elif plot_info[0] == "LANDSCAPE" %}
+                            {% include '_plot_3D_landscape.html' %}
+                        {% elif plot_info[0] == "CONTACT_MAPS" %}
+                            {% include '_plot_contacts.html' %}
+                        {% else %}
+                            {% include '_plot_default.html' %}
+                        {% endif %}
+                    </div>
+                {% endfor %}
+            </div>
+        </div>
+    </div>
+</section>
+
+<script>
+    // Configuration
+    var changeColor;
+    const CONFIG = {
+        sessionId: "{{ session_id }}",
+        nativePdb: "{{ url_for('static', filename=session_id + '/' + native_pdb) }}",
+        nativeFormat: "{{ native_pdb.split('.')[-1] }}",
+        trajXtc: "{{ url_for('static', filename=session_id + '/' + traj_xtc) }}",
+        trajFormat: "{{ traj_xtc.split('.')[-1] }}",
+        maxFrame: {{ trajectory_length - 1 }},
+        baseUrl: window.location.origin
+    };
+
+    // State management
+    const state = {
+        viewer: null,
+        player: null,
+        isRunning: false,
+        isLight: false,
+        isSpinning: false,
+        viewerReady: false,
+        sideChainsVisible: false,
+        plotsLoaded: false
+    };
+
+    // DOM elements_doc
+    const elements_doc = {
+        loadingOverlay: document.getElementById("loading-overlay"),
+        headerBox: document.getElementById("header-box"),
+        mainContentContainer: document.getElementById("main-content-container"),
+        sessionId: document.getElementById("session-id"),
+        shareButton: document.getElementById("share-button"),
+        viewport: document.getElementById("viewport"),
+        viewerLoading: document.getElementById("viewer-loading"),
+        plotsLoading: document.getElementById("plots-loading"),
+        sortableContainer: document.getElementById("sortable-container"),
+        frameSlider: document.getElementById("frame-slider"),
+        frameNumber: document.getElementById("frame-number"),
+        playPauseButton: document.getElementById("play-pause-button"),
+        toggleSpin: document.getElementById("toggleSpin"),
+        toggleTheme: document.getElementById("toggleTheme"),
+        toggleRunMDs: document.getElementById("toggleRunMDs"),
+        toggleSideChains: document.getElementById("toggleSideChains")
+    };
+
+    // Initialize the application with progressive loading
+    document.addEventListener("DOMContentLoaded", function() {
+        // First show the header immediately
+        elements_doc.headerBox.style.display = 'flex';
+
+        // Then show main content container
+        elements_doc.mainContentContainer.style.display = 'flex';
+
+        // Start loading the viewer
+        initViewer();
+
+        // Load plots after a short delay to prioritize the viewer
+        loadPlots();
+        new Sortable(document.getElementById("sortable-container"), {
+                    animation: 150,
+                    ghostClass: "sortable-ghost",
+                    handle: ".drag-handle",
+                    onEnd: function (evt) {
+                        // Save the new order here by sending an AJAX request to your server
+                    },
+                });
+
+                $(document).on("click", ".expand-icon", function () {
+                    var $box = $(this).closest(".box");
+                    if ($box.hasClass("expanded")) {
+                        $box.removeClass("expanded");
+                    } else {
+                        $(".box").removeClass("expanded");
+                        $box.addClass("expanded");
+                    }
+                });
+    });
+
+    // Initialize the molecular viewer
+    function initViewer() {
+        LouisMolStarWrapper.init("viewport").then(() => {
+            LouisMolStarWrapper.setBackground(0xffffff);
+
+            return LouisMolStarWrapper.loadTrajectory({
+                model: {
+                    kind: "model-url",
+                    url: CONFIG.nativePdb,
+                    format: CONFIG.nativeFormat
+                },
+                coordinates: {
+                    kind: "coordinates-url",
+                    url: CONFIG.trajXtc,
+                    format: CONFIG.trajFormat,
+                    isBinary: true
+                },
+                preset: "default"
+            });
+        })
+        .then(() => {
+            // Viewer is ready, show controls
+            state.viewerReady = true;
+            elements_doc.viewport.style.display = 'block';
+            elements_doc.viewerLoading.style.display = 'none';
+
+            // Enable controls
+            enableControls();
+            //changeColor(3);
+
+            console.log("Trajectory loaded successfully");
+
+            // Hide loading overlay if plots are also loaded
+            if (state.plotsLoaded) {
+                elements_doc.loadingOverlay.style.display = 'none';
+            }
+        })
+        .catch(error => {
+            console.error("Error loading trajectory:", error);
+            elements_doc.viewerLoading.innerHTML = '<p class="error-message">Failed to load 3D viewer. Please refresh the page.</p>';
+        });
+    }
+
+    // Load plots
+    function loadPlots() {
+            elements_doc.sortableContainer.style.display = 'block';
+            elements_doc.plotsLoading.style.display = 'none';
+            state.plotsLoaded = true;
+
+            // Hide loading overlay if viewer is also ready
+            if (state.viewerReady) {
+                elements_doc.loadingOverlay.style.display = 'none';
+            }
+
+            initPlotInteractivity();
+    }
+
+    // Enable all controls once viewer is ready
+    function enableControls() {
+        elements_doc.frameSlider.disabled = false;
+        elements_doc.frameNumber.disabled = false;
+        elements_doc.playPauseButton.disabled = false;
+        elements_doc.toggleSpin.disabled = false;
+        elements_doc.toggleTheme.disabled = false;
+        elements_doc.toggleRunMDs.disabled = false;
+        elements_doc.toggleSideChains.disabled = false;
+    }
+
+    // Setup all event listeners
+    function setupEventListeners() {
+        // Frame controls
+        elements_doc.frameSlider.addEventListener("input", handleFrameChange);
+        elements_doc.frameNumber.addEventListener("input", handleFrameChange);
+
+        // Control buttons
+        elements_doc.playPauseButton.addEventListener("click", togglePlayPause);
+        elements_doc.toggleSpin.addEventListener("click", toggleSpin);
+        elements_doc.toggleTheme.addEventListener("click", toggleTheme);
+        elements_doc.toggleSideChains.addEventListener("click", toggleSideChains);
+        elements_doc.toggleRunMDs.addEventListener("click", toggleRunMDs);
+
+        // Share button
+        elements_doc.shareButton.addEventListener("click", shareSession);
+    }
+
+    // Initialize plot interactivity
+    function initPlotInteractivity() {
+        // Add any plot-specific interactivity here
+        // For example, click handlers for plot expansion, etc.
+    }
+
+    // Handle frame changes
+    function handleFrameChange() {
+        if (!state.viewerReady) return;
+
+        const frame = parseInt(this.value);
+        elements_doc.frameSlider.value = frame;
+        elements_doc.frameNumber.value = frame;
+        LouisMolStarWrapper.interactivity.changeFrame(frame);
+    }
+
+    // Toggle play/pause
+    function togglePlayPause() {
+        if (!state.viewerReady) return;
+
+        if (!state.isRunning) {
+            state.player = LouisMolStarWrapper.plugin.managers.animation.play();
+            elements_doc.playPauseButton.textContent = "Pause";
+        } else {
+            LouisMolStarWrapper.plugin.managers.animation.pause();
+            elements_doc.playPauseButton.textContent = "Play";
+        }
+        state.isRunning = !state.isRunning;
+    }
+
+    // Toggle spin
+    function toggleSpin() {
+        LouisMolStarWrapper.toggleSpin();
+        state.isSpinning = !state.isSpinning;
+    }
+
+    // Toggle theme
+    function toggleTheme() {
+        const currentBg = state.isLight ? 0x000000 : 0xffffff;
+        LouisMolStarWrapper.setBackground(currentBg);
+        document.body.dataset.theme = currentBg === 0xffffff ? "light" : "dark";
+        state.isLight = !state.isLight;
+    }
+
+    // Toggle side chains
+    function toggleSideChains() {
+        if (state.sideChainsVisible) {
+            LouisMolStarWrapper.applyRepresentation("cartoon");
+        } else {
+            LouisMolStarWrapper.applyRepresentation("ball-and-stick");
+        }
+        state.sideChainsVisible = !state.sideChainsVisible;
+    }
+    function changeColor(number) {
+        LouisMolStarWrapper.interactivity.highlightOn(number, 0xFF00FF);
+    }
+    function hideColor() {
+        LouisMolStarWrapper.interactivity.highlightOff();
+    }
+    // Toggle MD run
+    function toggleRunMDs() {
+        if (!state.isRunning) {
+            state.player = LouisMolStarWrapper.plugin.managers.animation.play();
+        } else {
+            LouisMolStarWrapper.plugin.managers.animation.pause();
+        }
+        state.isRunning = !state.isRunning;
+    }
+    // Share session
+    function shareSession() {
+        const shareLink = `${CONFIG.baseUrl}/retrieve-results?session_id=${CONFIG.sessionId}`;
+        navigator.clipboard.writeText(shareLink).then(
+            () => {
+                alert("Share link copied to clipboard: " + shareLink);
+            },
+            (err) => {
+                console.error("Could not copy text: ", err);
+            },
+        );
+    }
+
+    // Setup scroll behavior
+    function setupScrollBehavior() {
+        const mainContentContainer = document.querySelector(
+            ".main-content-container",
+        );
+        const plotsColumn = document.querySelector(".plots-column");
+        const plotsContainer = document.getElementById("sortable-container");
+
+        function adjustScrolling() {
+            // Keep body overflow hidden
+            document.body.style.overflow = "hidden";
+
+            // Ensure plots column can scroll internally
+            plotsColumn.style.overflowY = "auto";
+            plotsColumn.style.height = "100%";
+
+            // Ensure plots container can expand fully
+            plotsContainer.style.height = "100%";
+            plotsContainer.style.overflowY = "auto";
+        }
+
+        // Initial adjustment
+        adjustScrolling();
+
+        // Adjust on window resize
+        window.addEventListener("resize", adjustScrolling);
+
+        // Header opacity on scroll
+        window.addEventListener("scroll", () => {
+            const scrollPosition = window.scrollY;
+            const headerBox = document.getElementById("header-box");
+            headerBox.style.opacity = scrollPosition > 50 ? "0" : "1";
+        });
+    }
+
+    // Setup event listeners after everything is loaded
+    window.addEventListener("load", function () {
+        setupEventListeners();
+        setupScrollBehavior();
+    });
+</script>
+{% endblock %}

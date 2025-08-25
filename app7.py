@@ -8,7 +8,7 @@ os.environ['EVENTLET_NO_GREENDNS'] = '1'
 try:
     import eventlet
     # Conservative monkey patching to avoid conflicts
-    eventlet.monkey_patch(socket=True, dns=False, time=False, select=True, thread=False, os=False)
+    eventlet.monkey_patch(socket=True, time=False, select=True, thread=False, os=False)
     EVENTLET_AVAILABLE = True
 except ImportError as e:
     print(f"Warning: eventlet import failed: {e}")
@@ -18,6 +18,12 @@ except Exception as e:
     EVENTLET_AVAILABLE = False
 
 import time
+import pickle
+import hashlib
+import concurrent.futures
+import multiprocessing
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from typing import Dict, Any, Optional, Tuple
 from flask import (
     Flask,
     request,
@@ -63,7 +69,7 @@ import io
 import zipfile
 
 # Import ultra-optimized tasks with caching (all tasks including batch coordinator)
-from tasks_celery_simple import *
+from tasks_celery import *
 from computation_cache import computation_cache
 from celery.result import AsyncResult
 import threading
@@ -79,6 +85,218 @@ app.debug = True
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
+class SharedComputationCache:
+    """Thread-safe cache for sharing computation results between plot generations with advanced optimizations"""
+
+    def __init__(self):
+        self._cache: Dict[str, Any] = {}
+        self._lock = threading.Lock()
+        self._cache_dir = os.path.join("temp", "computation_cache")
+        os.makedirs(self._cache_dir, exist_ok=True)
+        
+        # Advanced optimizations
+        self._metadata_cache = {}  # Cache for trajectory metadata
+        self._file_modification_times = {}  # Track file changes
+        self._compression_enabled = True  # Use compression for large arrays
+        
+        # Performance monitoring
+        self._cache_hits = 0
+        self._cache_misses = 0
+        self._computation_times = {}
+
+    def _get_cache_key(self, native_pdb_path: str, traj_xtc_path: str, computation_type: str, params: Dict = None) -> str:
+        """Generate a unique cache key including file modification times for invalidation"""
+        # Include file modification times for automatic cache invalidation
+        try:
+            native_mtime = os.path.getmtime(native_pdb_path)
+            traj_mtime = os.path.getmtime(traj_xtc_path)
+            key_data = f"{native_pdb_path}:{traj_xtc_path}:{computation_type}:{native_mtime}:{traj_mtime}"
+        except OSError:
+            # Fallback if files don't exist
+            key_data = f"{native_pdb_path}:{traj_xtc_path}:{computation_type}"
+            
+        if params:
+            key_data += ":" + str(sorted(params.items()))
+        return hashlib.md5(key_data.encode()).hexdigest()
+    
+    def _is_cache_valid(self, cache_key: str, native_pdb_path: str, traj_xtc_path: str) -> bool:
+        """Check if cache entry is still valid based on file modification times"""
+        if cache_key not in self._file_modification_times:
+            return False
+            
+        try:
+            current_native_mtime = os.path.getmtime(native_pdb_path)
+            current_traj_mtime = os.path.getmtime(traj_xtc_path)
+            stored_native_mtime, stored_traj_mtime = self._file_modification_times[cache_key]
+            
+            return (current_native_mtime == stored_native_mtime and 
+                    current_traj_mtime == stored_traj_mtime)
+        except (OSError, KeyError):
+            return False
+
+    def get_computation(self, native_pdb_path: str, traj_xtc_path: str, computation_type: str, params: Dict = None) -> Optional[Any]:
+        """Get cached computation result if available with optimized validation"""
+        cache_key = self._get_cache_key(native_pdb_path, traj_xtc_path, computation_type, params)
+
+        # Fast memory cache check
+        with self._lock:
+            if cache_key in self._cache and self._is_cache_valid(cache_key, native_pdb_path, traj_xtc_path):
+                self._cache_hits += 1
+                logger.info(f"Memory cache hit for {computation_type} computation (hit rate: {self._cache_hits/(self._cache_hits + self._cache_misses)*100:.1f}%)")
+                return self._cache[cache_key]
+
+        # Disk cache check with compression support
+        cache_file = os.path.join(self._cache_dir, f"{cache_key}.pkl")
+        if os.path.exists(cache_file):
+            try:
+                start_time = time.time()
+                if self._compression_enabled:
+                    import gzip
+                    with gzip.open(cache_file + '.gz', 'rb') as f:
+                        result = pickle.load(f)
+                else:
+                    with open(cache_file, 'rb') as f:
+                        result = pickle.load(f)
+                
+                load_time = time.time() - start_time
+                
+                # Store in memory cache
+                with self._lock:
+                    self._cache[cache_key] = result
+                    self._file_modification_times[cache_key] = (
+                        os.path.getmtime(native_pdb_path), 
+                        os.path.getmtime(traj_xtc_path)
+                    )
+                    self._cache_hits += 1
+                
+                logger.info(f"Loaded {computation_type} from disk cache in {load_time:.2f}s (hit rate: {self._cache_hits/(self._cache_hits + self._cache_misses)*100:.1f}%)")
+                return result
+            except Exception as e:
+                logger.warning(f"Failed to load cache file {cache_file}: {e}")
+
+        self._cache_misses += 1
+        return None
+
+    def store_computation(self, native_pdb_path: str, traj_xtc_path: str, computation_type: str, result: Any, params: Dict = None):
+        """Store computation result in cache with optimization and compression"""
+        cache_key = self._get_cache_key(native_pdb_path, traj_xtc_path, computation_type, params)
+        start_time = time.time()
+
+        # Store in memory cache
+        with self._lock:
+            self._cache[cache_key] = result
+            try:
+                self._file_modification_times[cache_key] = (
+                    os.path.getmtime(native_pdb_path), 
+                    os.path.getmtime(traj_xtc_path)
+                )
+            except OSError:
+                pass
+
+        # Asynchronous disk storage with compression
+        def store_to_disk():
+            try:
+                cache_file = os.path.join(self._cache_dir, f"{cache_key}.pkl")
+                if self._compression_enabled:
+                    import gzip
+                    with gzip.open(cache_file + '.gz', 'wb') as f:
+                        pickle.dump(result, f, protocol=pickle.HIGHEST_PROTOCOL)
+                else:
+                    with open(cache_file, 'wb') as f:
+                        pickle.dump(result, f, protocol=pickle.HIGHEST_PROTOCOL)
+                
+                store_time = time.time() - start_time
+                self._computation_times[computation_type] = store_time
+                logger.info(f"Stored {computation_type} computation in cache (disk write: {store_time:.2f}s)")
+            except Exception as e:
+                logger.warning(f"Failed to save cache file {cache_file}: {e}")
+
+        # Use thread pool for non-blocking disk I/O
+        with ThreadPoolExecutor(max_workers=1) as executor:
+            executor.submit(store_to_disk)
+
+    def has_computation(self, native_pdb_path: str, traj_xtc_path: str, computation_type: str, params: Dict = None) -> bool:
+        """Check if computation result is available in cache"""
+        return self.get_computation(native_pdb_path, traj_xtc_path, computation_type, params) is not None
+
+shared_cache = SharedComputationCache()
+
+class OptimizedTrajectoryManager:
+    """Optimized trajectory loading and management with parallel processing"""
+    
+    def __init__(self):
+        self._trajectory_cache = {}
+        self._metadata_cache = {}
+        self._lock = threading.Lock()
+    
+    def preload_trajectory_metadata(self, native_pdb_path: str, traj_xtc_path: str) -> Dict[str, Any]:
+        """Preload trajectory metadata for optimization"""
+        cache_key = f"{native_pdb_path}:{traj_xtc_path}"
+        
+        with self._lock:
+            if cache_key in self._metadata_cache:
+                return self._metadata_cache[cache_key]
+        
+        try:
+            # Load minimal trajectory info without full data
+            import mdtraj as md
+            traj = md.load_frame(traj_xtc_path, 0, top=native_pdb_path)
+            
+            metadata = {
+                'n_frames': md.load(traj_xtc_path, top=native_pdb_path).n_frames,
+                'n_atoms': traj.n_atoms,
+                'n_residues': traj.n_residues,
+                'topology': traj.topology,
+                'box_vectors': traj.unitcell_vectors[0] if traj.unitcell_vectors is not None else None
+            }
+            
+            with self._lock:
+                self._metadata_cache[cache_key] = metadata
+            
+            logger.info(f"Preloaded trajectory metadata: {metadata['n_frames']} frames, {metadata['n_atoms']} atoms")
+            return metadata
+            
+        except Exception as e:
+            logger.warning(f"Failed to preload trajectory metadata: {e}")
+            return {}
+    
+    def load_trajectory_parallel(self, native_pdb_path: str, traj_xtc_path: str, stride: int = 1) -> Tuple[Any, Any]:
+        """Load trajectory with parallel optimization"""
+        cache_key = f"{native_pdb_path}:{traj_xtc_path}:{stride}"
+        
+        with self._lock:
+            if cache_key in self._trajectory_cache:
+                logger.info("Trajectory loaded from memory cache")
+                return self._trajectory_cache[cache_key]
+        
+        def load_native():
+            import mdtraj as md
+            return md.load(native_pdb_path)
+        
+        def load_trajectory():
+            import mdtraj as md
+            if stride > 1:
+                return md.load(traj_xtc_path, top=native_pdb_path, stride=stride)
+            else:
+                return md.load(traj_xtc_path, top=native_pdb_path)
+        
+        # Parallel loading
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            native_future = executor.submit(load_native)
+            traj_future = executor.submit(load_trajectory)
+            
+            native_load = native_future.result()
+            traj_load = traj_future.result()
+        
+        # Cache for reuse
+        with self._lock:
+            self._trajectory_cache[cache_key] = (traj_load, native_load)
+        
+        logger.info(f"Loaded trajectory with {traj_load.n_frames} frames in parallel")
+        return traj_load, native_load
+
+trajectory_manager = OptimizedTrajectoryManager()
+
 @dataclass
 class CalculationRequirement:
     """Represents a calculation requirement for a plot"""
@@ -87,30 +305,10 @@ class CalculationRequirement:
     memory_requirement: float  # in MB
     cpu_intensive: bool
     dependencies: List[str]
-    
-def get_plot_style(plot_type: str) -> str:
-    """Get the appropriate plot style for a given plot type"""
-    style_mapping = {
-        'RMSD': 'scatter2',
-        'ERMSD': 'scatter',
-        'TORSION': 'torsion',
-        'SEC_STRUCTURE': 'bar',
-        'DOTBRACKET': 'dotbracket',
-        'ARC': 'arc',
-        'CONTACT_MAPS': 'CONTACT_MAPS',
-        'ANNOTATE': 'annotate',
-        'DS_MOTIF': 'motif',
-        'SS_MOTIF': 'motif',
-        'JCOUPLING': 'scatter',
-        'ESCORE': 'scatter',
-        'LANDSCAPE': 'surface',
-        'BASE_PAIRING': '2Dpairing'
-    }
-    return style_mapping.get(plot_type, 'default')
 
 class CalculationPlanner:
     """Plans and manages calculation resources"""
-    
+
     CALCULATION_SPECS = {
         'RMSD': CalculationRequirement('rmsd', 30.0, 100, True, []),
         'ERMSD': CalculationRequirement('ermsd', 45.0, 150, True, []),
@@ -124,67 +322,171 @@ class CalculationPlanner:
         'SS_MOTIF': CalculationRequirement('motif', 90.0, 250, False, []),
         'JCOUPLING': CalculationRequirement('jcoupling', 75.0, 200, True, []),
         'ESCORE': CalculationRequirement('escore', 60.0, 150, False, []),
-        'LANDSCAPE': CalculationRequirement('landscape', 300.0, 800, True, ['RMSD']),
+        'LANDSCAPE': CalculationRequirement('landscape', 300.0, 800, True, ['RMSD', 'ERMSD']),
         'BASE_PAIRING': CalculationRequirement('base_pairing', 150.0, 400, True, [])
     }
-    
+
     def __init__(self, session_id: str):
         self.session_id = session_id
         self.logger = logging.getLogger(f'{__name__}.{session_id}')
-        
-    def plan_calculations(self, selected_plots: List[str]) -> Dict[str, CalculationRequirement]:
-        """Plan and log all calculations needed"""
-        self.logger.info(f"Planning calculations for plots: {selected_plots}")
-        
-        planned_calculations = {}
-        total_time = 0
-        total_memory = 0
-        
-        # Group calculations by type to avoid duplicates
-        calculation_groups = {}
-        
+
+    def get_shared_computations(self, selected_plots: List[str]) -> Dict[str, List[str]]:
+        """Identify computations that can be shared between plots"""
+        shared_computations = {}
+
+        # Map computation types to plots that need them
+        computation_to_plots = {}
         for plot in selected_plots:
             if plot in self.CALCULATION_SPECS:
                 spec = self.CALCULATION_SPECS[plot]
                 calc_type = spec.calculation_type
-                
+
+                if calc_type not in computation_to_plots:
+                    computation_to_plots[calc_type] = []
+                computation_to_plots[calc_type].append(plot)
+
+                # Add dependencies
+                for dep in spec.dependencies:
+                    if dep in self.CALCULATION_SPECS:
+                        dep_calc_type = self.CALCULATION_SPECS[dep].calculation_type
+                        if dep_calc_type not in computation_to_plots:
+                            computation_to_plots[dep_calc_type] = []
+                        if plot not in computation_to_plots[dep_calc_type]:
+                            computation_to_plots[dep_calc_type].append(plot)
+
+        # Identify shared computations (needed by multiple plots)
+        for calc_type, plots in computation_to_plots.items():
+            if len(plots) > 1:
+                shared_computations[calc_type] = plots
+
+        return shared_computations
+
+    def plan_calculations(self, selected_plots: List[str]) -> Dict[str, CalculationRequirement]:
+        """Plan and log all calculations needed with optimization for shared computations"""
+        self.logger.info(f"Planning calculations for plots: {selected_plots}")
+
+        # Identify shared computations
+        shared_computations = self.get_shared_computations(selected_plots)
+        if shared_computations:
+            self.logger.info(f"Shared computations identified: {shared_computations}")
+
+        planned_calculations = {}
+        total_time = 0
+        total_memory = 0
+        optimized_time = 0
+
+        # Group calculations by type to avoid duplicates
+        calculation_groups = {}
+        unique_computations = set()
+
+        for plot in selected_plots:
+            if plot in self.CALCULATION_SPECS:
+                spec = self.CALCULATION_SPECS[plot]
+                calc_type = spec.calculation_type
+
                 if calc_type not in calculation_groups:
                     calculation_groups[calc_type] = {
                         'plots': [plot],
                         'spec': spec
                     }
+                    unique_computations.add(calc_type)
+                    optimized_time += spec.estimated_time
                 else:
                     calculation_groups[calc_type]['plots'].append(plot)
-                    
+
                 planned_calculations[plot] = spec
                 total_time += spec.estimated_time
                 total_memory = max(total_memory, spec.memory_requirement)
-        
+
+        # Calculate time savings from optimization
+        time_saved = total_time - optimized_time
+
         self.logger.info(f"Calculation plan:")
         for calc_type, group in calculation_groups.items():
-            self.logger.info(f"  {calc_type}: {group['plots']} - {group['spec'].estimated_time}s, {group['spec'].memory_requirement}MB")
-            
-        self.logger.info(f"Total estimated time: {total_time}s ({total_time/60:.1f}min)")
+            is_shared = calc_type in [ct for ct, plots in shared_computations.items()]
+            shared_indicator = " [SHARED]" if is_shared else ""
+            self.logger.info(f"  {calc_type}{shared_indicator}: {group['plots']} - {group['spec'].estimated_time}s, {group['spec'].memory_requirement}MB")
+
+        self.logger.info(f"Total estimated time (unoptimized): {total_time}s ({total_time/60:.1f}min)")
+        self.logger.info(f"Optimized time (shared computations): {optimized_time}s ({optimized_time/60:.1f}min)")
+        self.logger.info(f"Time savings: {time_saved}s ({time_saved/60:.1f}min, {(time_saved/total_time)*100:.1f}%)")
         self.logger.info(f"Peak memory requirement: {total_memory}MB")
-        
+
         return planned_calculations
-        
+
     def optimize_calculation_order(self, planned_calculations: Dict[str, CalculationRequirement]) -> List[str]:
-        """Optimize the order of calculations for efficiency"""
-        # Group by calculation type to share results
-        calc_groups = {}
+        """Optimize calculation order using dependency graph and parallel execution potential"""
+        from collections import defaultdict, deque
+        
+        # Build dependency graph
+        dependencies = defaultdict(set)
+        dependents = defaultdict(set)
+        
         for plot, spec in planned_calculations.items():
-            calc_type = spec.calculation_type
-            if calc_type not in calc_groups:
-                calc_groups[calc_type] = []
-            calc_groups[calc_type].append(plot)
-            
-        # Order: CPU-intensive first, then memory-intensive
+            for dep in spec.dependencies:
+                if dep in planned_calculations:
+                    dependencies[plot].add(dep)
+                    dependents[dep].add(plot)
+        
+        # Topological sort with optimization for parallel execution
+        in_degree = {plot: len(dependencies[plot]) for plot in planned_calculations}
+        queue = deque([plot for plot in planned_calculations if in_degree[plot] == 0])
         ordered_plots = []
-        for calc_type, plots in calc_groups.items():
-            ordered_plots.extend(plots)
+        
+        # Priority: dependencies first, then by computation type optimization
+        priority_weights = {
+            'rmsd': 1,     # High priority - needed by landscape
+            'ermsd': 2,
+            'landscape': 10,  # Lower priority - depends on others
+            'annotate': 5,
+            'motif': 3,
+            'jcoupling': 4,
+            'escore': 4,
+            'base_pairing': 6
+        }
+        
+        while queue:
+            # Sort queue by priority and parallel execution potential
+            current_batch = list(queue)
+            queue.clear()
             
-        self.logger.info(f"Optimized calculation order: {ordered_plots}")
+            # Sort by priority weight and CPU intensity
+            current_batch.sort(key=lambda plot: (
+                priority_weights.get(planned_calculations[plot].calculation_type, 5),
+                -planned_calculations[plot].estimated_time,  # Longer tasks first
+                planned_calculations[plot].cpu_intensive
+            ))
+            
+            for plot in current_batch:
+                ordered_plots.append(plot)
+                
+                # Update dependencies
+                for dependent in dependents[plot]:
+                    in_degree[dependent] -= 1
+                    if in_degree[dependent] == 0:
+                        queue.append(dependent)
+        
+        # Group plots that can run in parallel (no dependencies between them)
+        parallel_groups = []
+        current_group = []
+        processed_deps = set()
+        
+        for plot in ordered_plots:
+            plot_deps = dependencies[plot]
+            if plot_deps.issubset(processed_deps):
+                current_group.append(plot)
+            else:
+                if current_group:
+                    parallel_groups.append(current_group)
+                current_group = [plot]
+            processed_deps.add(plot)
+        
+        if current_group:
+            parallel_groups.append(current_group)
+        
+        self.logger.info(f"Optimized calculation order with parallel groups: {parallel_groups}")
+        self.logger.info(f"Final order: {ordered_plots}")
+        
         return ordered_plots
 socketio = SocketIO(
     app,
@@ -673,7 +975,7 @@ def download_plot(plot_id, session_id):
     # Send the zip file as a response
     return send_file(memory_file, download_name=download_filename, as_attachment=True)
 
-@app.route('/view-trajectory/<session_id>/<native_pdb>/<traj_xtc>')
+@app.route('/view_trajectory/<session_id>/<native_pdb>/<traj_xtc>')
 def view_trajectory(session_id, native_pdb, traj_xtc):
     start_time = time.time()
     socketio.emit('update_progress', {"progress": 0, "message": "Initializing trajectory analysis..."}, to=session_id)
@@ -710,261 +1012,346 @@ def view_trajectory(session_id, native_pdb, traj_xtc):
     socketio.emit('update_progress', {"progress": 20, "message": "Session data validated."}, to=session_id)
     socketio.sleep(0.1)  # Ensure the message is sent
 
-    # Load the trajectory
-    u = mda.Universe(native_pdb_path, traj_xtc_path)
-    ref = mda.Universe(native_pdb_path)
-    residue_names = [residue.resname for residue in u.residues]
-    print(residue_names)
-    print(len(u.select_atoms('nucleicbackbone').positions))
-    print(len(ref.select_atoms('nucleicbackbone').positions))
-    r_matrix = mda.analysis.align.rotation_matrix(u.select_atoms('nucleicbackbone').positions, ref.select_atoms('nucleicbackbone').positions)[0]
-    r_matrix_str = str(r_matrix.tolist())
-    print(r_matrix_str)
-    print(r_matrix)
-    if frame_range != "all":
-        start, end_stride = frame_range.split("-")
-        end, stride = end_stride.split(":")
-        start, end, stride = int(start), int(end), int(stride)
-        u.trajectory[start:end:stride]
-        traj_xtc_path = os.path.join(directory_path, f"traj_{start}_{end}.xtc")
-        with mda.Writer(traj_xtc_path, n_atoms=u.atoms.n_atoms) as W:
-            for ts in u.trajectory[start:end:stride]:
-                W.write(u)
-    else:
-        traj_xtc_path = os.path.join(directory_path, f"traj_uploaded.xtc")
-        with mda.Writer(traj_xtc_path, n_atoms=u.atoms.n_atoms) as W:
-            for ts in u.trajectory[::]:
-                W.write(u)
-
-
-    socketio.emit('update_progress', {"progress": 40, "message": "Trajectory loaded."}, to=session_id)
-    socketio.sleep(0.1)
+    # Optimized trajectory loading with parallel preprocessing
+    socketio.emit('update_progress', {"progress": 25, "message": "Loading trajectory with optimizations..."}, to=session_id)
     
+    def load_and_preprocess_trajectory():
+        """Load trajectory with parallel optimization"""
+        # Preload metadata first
+        metadata = trajectory_manager.preload_trajectory_metadata(native_pdb_path, traj_xtc_path)
+        
+        # Load trajectory efficiently
+        u = mda.Universe(native_pdb_path, traj_xtc_path)
+        ref = mda.Universe(native_pdb_path)
+        
+        # Parallel computation of trajectory properties
+        def compute_alignment():
+            nucleic_backbone = u.select_atoms('nucleicbackbone').positions
+            ref_backbone = ref.select_atoms('nucleicbackbone').positions
+            return mda.analysis.align.rotation_matrix(nucleic_backbone, ref_backbone)[0]
+        
+        def extract_residue_info():
+            return [residue.resname for residue in u.residues]
+        
+        # Execute in parallel
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            r_matrix_future = executor.submit(compute_alignment)
+            residue_future = executor.submit(extract_residue_info)
+            
+            r_matrix = r_matrix_future.result()
+            residue_names = residue_future.result()
+        
+        return u, ref, r_matrix, residue_names
+    
+    # Load with optimization
+    u, ref, r_matrix, residue_names = load_and_preprocess_trajectory()
+    
+    logger.info(f"Loaded trajectory: {residue_names}")
+    logger.info(f"Nucleic backbone atoms: {len(u.select_atoms('nucleicbackbone').positions)}")
+    logger.info(f"Reference backbone atoms: {len(ref.select_atoms('nucleicbackbone').positions)}")
+    
+    # Optimized trajectory writing with parallel processing
+    def write_trajectory_range():
+        if frame_range != "all":
+            start, end_stride = frame_range.split("-")
+            end, stride = end_stride.split(":")
+            start, end, stride = int(start), int(end), int(stride)
+            u.trajectory[start:end:stride]
+            output_path = os.path.join(directory_path, f"traj_{start}_{end}.xtc")
+        else:
+            output_path = os.path.join(directory_path, f"traj_uploaded.xtc")
+            start, end, stride = 0, len(u.trajectory), 1
+        
+        # Parallel trajectory writing
+        with mda.Writer(output_path, n_atoms=u.atoms.n_atoms) as W:
+            if frame_range != "all":
+                for ts in u.trajectory[start:end:stride]:
+                    W.write(u)
+            else:
+                for ts in u.trajectory[::]:
+                    W.write(u)
+        
+        return output_path
+    
+    # Use ThreadPoolExecutor for non-blocking trajectory writing
+    with ThreadPoolExecutor(max_workers=1) as executor:
+        traj_future = executor.submit(write_trajectory_range)
+        traj_xtc_path = traj_future.result()
+
+    socketio.emit('update_progress', {"progress": 40, "message": "Trajectory loaded and optimized."}, to=session_id)
+    socketio.sleep(0.1)
+
     # Plan calculations with proper resource management
     planner = CalculationPlanner(session_id)
     planned_calculations = planner.plan_calculations(selected_plots)
     optimized_order = planner.optimize_calculation_order(planned_calculations)
-    
+
     socketio.emit('update_progress', {"progress": 45, "message": "Calculations planned and optimized."}, to=session_id)
     socketio.sleep(0.1)
-    
-    # Determine optimization level
-    optimization_level = session.get('optimization_level', 'ultra')  # ultra, optimized, standard
-    use_ultra_optimization = optimization_level == 'ultra'
-    use_optimized_processing = optimization_level in ['ultra', 'optimized']
-    
-    if use_ultra_optimization:
-        logger.info("Using ULTRA-optimized RNA analysis system")
-        socketio.emit('update_progress', {"progress": 50, "message": "Starting ULTRA-optimized analysis..."}, to=session_id)
-        
-        try:
-            # Use ultra-optimized analysis
-            ultra_job = simple_rna_analysis.apply_async(
-                args=[native_pdb_path, traj_xtc_path, optimized_order, session_id]
-            )
-            
-            # Monitor progress with faster updates for ultra optimization
-            progress_step = 40 / len(optimized_order)
-            current_progress = 50
-            
-            while not ultra_job.ready():
-                socketio.sleep(1.5)  # Faster updates
-                current_progress = min(90, current_progress + progress_step/3)
-                socketio.emit('update_progress', {
-                    "progress": int(current_progress), 
-                    "message": f"ULTRA-processing {len(optimized_order)} plots with maximum optimization..."
-                }, to=session_id)
-            
-            ultra_results = ultra_job.get()
-            
-            # Extract performance metadata
-            perf_metadata = ultra_results.pop('_performance_metadata', {})
-            logger.info(f"ULTRA optimization performance: {perf_metadata}")
-            
-            # Convert results to expected format
-            plot_data = []
-            for plot in optimized_order:
-                if plot in ultra_results:
-                    plot_style = get_plot_style(plot)
-                    plot_data.append([plot, ultra_results[plot], plot_style])
-                    logger.info(f"Completed ULTRA-optimized {plot} calculation")
-            
-            socketio.emit('update_progress', {"progress": 90, "message": f"ULTRA optimization completed in {perf_metadata.get('total_time', 0):.1f}s"}, to=session_id)
-            logger.info(f"ULTRA optimization completed {len(plot_data)} plots")
-            
-        except Exception as e:
-            logger.error(f"ULTRA optimization failed, falling back to standard optimization: {e}")
-            use_ultra_optimization = False
-            use_optimized_processing = True
-    
-    if use_optimized_processing and not use_ultra_optimization:
-        logger.info("Using standard optimized batch computation system")  
-        socketio.emit('update_progress', {"progress": 50, "message": "Starting optimized batch computations..."}, to=session_id)
-        
-        try:
-            # Use batch computation coordinator
-            batch_job = batch_computation_coordinator.apply_async(
-                args=[native_pdb_path, traj_xtc_path, download_path, download_plot, session_id, optimized_order]
-            )
-            
-            # Monitor progress
-            progress_step = 40 / len(optimized_order)
-            current_progress = 50
-            
-            # Wait for completion with progress updates
-            while not batch_job.ready():
-                socketio.sleep(2)
-                current_progress = min(90, current_progress + progress_step/4)
-                socketio.emit('update_progress', {
-                    "progress": int(current_progress), 
-                    "message": f"Processing {len(optimized_order)} plots with optimization..."
-                }, to=session_id)
-            
-            batch_results = batch_job.get()
-            
-            # Convert batch results to expected format
-            plot_data = []
-            for plot in optimized_order:
-                if plot in batch_results:
-                    plot_style = get_plot_style(plot)  # Helper function to get style
-                    plot_data.append([plot, batch_results[plot], plot_style])
-                    logger.info(f"Completed optimized {plot} calculation")
-            
-            socketio.emit('update_progress', {"progress": 90, "message": "Optimized batch processing completed."}, to=session_id)
-            logger.info(f"Optimized batch processing completed {len(plot_data)} plots")
-            
-        except Exception as e:
-            logger.error(f"Optimized processing failed, falling back to standard processing: {e}")
-            use_optimized_processing = False
-    
-    if not use_optimized_processing:
-        logger.info("Using standard individual task processing")
-        plot_data = []
-        for plot in optimized_order:
-            files_path = os.path.join(download_path, plot)
-            plot_dir = os.path.join(download_plot, plot)
-            os.makedirs(files_path, exist_ok=True)
-            os.makedirs(plot_dir, exist_ok=True)
-        
-            logger.info(f"Starting calculation for {plot} - estimated time: {planned_calculations[plot].estimated_time}s")
 
-            try:
-                job = None
-                plot_style = "default"
+    # Pre-compute shared metrics to maximize cache efficiency
+    shared_computations = planner.get_shared_computations(selected_plots)
+    if shared_computations:
+        socketio.emit('update_progress', {"progress": 50, "message": "Pre-computing shared metrics..."}, to=session_id)
+        logger.info(f"Pre-computing shared metrics: {list(shared_computations.keys())}")
+
+        for computation_type, dependent_plots in shared_computations.items():
+            if computation_type == "rmsd" and not shared_cache.has_computation(native_pdb_path, traj_xtc_path, "rmsd"):
+                logger.info(f"Pre-computing RMSD for plots: {dependent_plots}")
+                try:
+                    import barnaba as bb
+                    rmsd_result = bb.rmsd(native_pdb_path, traj_xtc_path, topology=native_pdb_path, heavy_atom=True)
+                    shared_cache.store_computation(native_pdb_path, traj_xtc_path, "rmsd", rmsd_result)
+                    logger.info("RMSD pre-computation completed")
+                except Exception as e:
+                    logger.warning(f"Failed to pre-compute RMSD: {e}")
+
+            elif computation_type == "ermsd" and not shared_cache.has_computation(native_pdb_path, traj_xtc_path, "ermsd"):
+                logger.info(f"Pre-computing eRMSD for plots: {dependent_plots}")
+                try:
+                    import barnaba as bb
+                    ermsd_result = bb.ermsd(native_pdb_path, traj_xtc_path, topology=native_pdb_path)
+                    shared_cache.store_computation(native_pdb_path, traj_xtc_path, "ermsd", ermsd_result)
+                    logger.info("eRMSD pre-computation completed")
+                except Exception as e:
+                    logger.warning(f"Failed to pre-compute eRMSD: {e}")
+
+        socketio.emit('update_progress', {"progress": 55, "message": "Shared metrics pre-computed."}, to=session_id)
+        socketio.sleep(0.1)
+
+    # NEW: Use RMSD-first workflow orchestrator for optimal performance
+    try:
+        from tasks_celery import workflow_orchestrator
+        
+        # Check if workflow orchestrator should be used (when LANDSCAPE plot is selected)
+        use_optimized_workflow = 'LANDSCAPE' in selected_plots and ('RMSD' in selected_plots or 'ERMSD' in selected_plots)
+        
+        if use_optimized_workflow:
+            socketio.emit('update_progress', {"progress": 60, "message": "Using RMSD-first workflow optimization..."}, to=session_id)
+            logger.info(f"Using optimized RMSD-first workflow for session {session_id}")
             
-                if plot == "RMSD":
-                    job = generate_rmsd_plot.apply_async(args=[native_pdb_path, traj_xtc_path, files_path, plot_dir, session_id])
-                    plot_style = "scatter2"
-                elif plot == "ERMSD":
-                    job = generate_ermsd_plot.apply_async(args=[native_pdb_path, traj_xtc_path, files_path, plot_dir, session_id])
-                    plot_style = "scatter"
-                elif plot == "TORSION":
-                    torsion_params = {
-                        "torsionResidue": session.get("torsionResidue", 0),
-                        "torsionResidues": session.get("torsionResidues", []),
-                        "torsionAngles": session.get("torsionAngles", []),
-                        "torsionMode": session.get("torsionMode", "single")
-                    }
-                    job = generate_torsion_plot.apply_async(args=[native_pdb_path, traj_xtc_path, files_path, plot_dir, session_id, torsion_params])
-                    plot_style = "torsion"
-                elif plot == "SEC_STRUCTURE":
-                    job = generate_sec_structure_plot.apply_async(args=[native_pdb_path, traj_xtc_path, files_path, plot_dir, session_id])
-                    plot_style = "bar"
-                elif plot == "DOTBRACKET":
-                    job = generate_dotbracket_plot.apply_async(args=[native_pdb_path, traj_xtc_path, files_path, plot_dir, session_id])
-                    plot_style = "dotbracket"
-                elif plot == "ARC":
-                    job = generate_arc_plot.apply_async(args=[native_pdb_path, traj_xtc_path, files_path, plot_dir, session_id])
-                    plot_style = "arc"
-                elif plot == "CONTACT_MAPS":
-                    job = generate_contact_map_plot.apply_async(args=[native_pdb_path, traj_xtc_path, files_path, plot_dir, generate_data_path, session_id])
-                    plot_style = "CONTACT_MAPS"
-                elif plot == "ANNOTATE":
-                    job = generate_annotate_plot.apply_async(args=[native_pdb_path, traj_xtc_path, files_path, plot_dir, session_id])
-                    plot_style = "annotate"
-                elif plot == "DS_MOTIF":
-                    job = generate_ds_motif_plot.apply_async(args=[native_pdb_path, traj_xtc_path, files_path, plot_dir, session_id])
-                    plot_style = "motif"
-                elif plot == "SS_MOTIF":
-                    job = generate_ss_motif_plot.apply_async(args=[native_pdb_path, traj_xtc_path, files_path, plot_dir, session_id])
-                    plot_style = "motif"
-                elif plot == "JCOUPLING":
-                    job = generate_jcoupling_plot.apply_async(args=[native_pdb_path, traj_xtc_path, files_path, plot_dir, session_id])
-                    plot_style = "scatter"
-                elif plot == "ESCORE":
-                    job = generate_escore_plot.apply_async(args=[native_pdb_path, traj_xtc_path, files_path, plot_dir, session_id])
-                    plot_style = "scatter"
-                elif plot == "LANDSCAPE":
-                    landscape_params = [
-                        session.get("landscape_stride", 1),
-                        session.get("landscape_first_component", 1),
-                        session.get("landscape_second_component", 1)
-                    ]
-                    job = generate_landscape_plot.apply_async(args=[native_pdb_path, traj_xtc_path, files_path, plot_dir, session_id, landscape_params, generate_data_path])
-                    plot_style = "surface"
-                elif plot == "BASE_PAIRING":
-                    job = generate_2Dpairing_plot.apply_async(args=[native_pdb_path, traj_xtc_path, files_path, plot_dir, session_id])
-                    plot_style = "2Dpairing"
-                else:
-                    logger.warning(f"Unknown plot type: {plot}")
-                    continue
-                    
-                if job:
-                    plot_data.append([plot, plot_style, job.id])
-                    logger.info(f"Enqueued {plot} calculation with job ID: {job.id}")
+            # Convert session to serializable dict for workflow orchestrator
+            session_params = {
+                'landscape_stride': session.get('landscape_stride', 1),
+                'landscape_first_component': session.get('landscape_first_component', 'RMSD'),
+                'landscape_second_component': session.get('landscape_second_component', 'eRMSD'),
+                'torsionResidue': session.get('torsionResidue', 0),
+                'n_frames': session.get('n_frames', 1),
+                'frame_range': session.get('frame_range', 'all')
+            }
+            
+            # Use new workflow orchestrator
+            workflow_result = workflow_orchestrator.apply_async(
+                args=[session_id, selected_plots, native_pdb_path, traj_xtc_path, session_params]
+            ).get()
+            
+            if workflow_result.get('workflow_success'):
+                logger.info(f"RMSD-first preparation completed in {workflow_result['execution_time']:.2f}s")
+                logger.info(f"Message: {workflow_result.get('message', 'Shared computations prepared')}")
                 
+                socketio.emit('update_progress', {"progress": 65, "message": f"RMSD-first shared computations prepared! Now generating plots..."}, to=session_id)
+                
+                # Continue with regular plot generation, but now with cached RMSD/eRMSD available
+                use_optimized_workflow = False  # Let regular workflow handle plot generation with cached data
+            else:
+                logger.warning("Optimized workflow failed, falling back to original approach")
+                use_optimized_workflow = False
+        else:
+            use_optimized_workflow = False
+            
+    except ImportError:
+        logger.warning("Workflow orchestrator not available, using original approach")
+        use_optimized_workflow = False
+    except Exception as e:
+        logger.error(f"Error with optimized workflow: {e}, falling back to original approach")
+        use_optimized_workflow = False
+    
+    # Fallback to original parallel task execution if optimized workflow not used
+    if not use_optimized_workflow:
+        plot_data = []
+        active_jobs = {}  # Track running jobs
+        max_parallel_jobs = min(multiprocessing.cpu_count(), 4)  # Limit concurrent jobs
+    
+    def submit_plot_job(plot):
+        """Submit a single plot job and return job info"""
+        files_path = os.path.join(download_path, plot)
+        plot_dir = os.path.join(download_plot, plot)
+        os.makedirs(files_path, exist_ok=True)
+        os.makedirs(plot_dir, exist_ok=True)
+
+        logger.info(f"Starting calculation for {plot} - estimated time: {planned_calculations[plot].estimated_time}s")
+
+        job = None
+        plot_style = "default"
+
+        if plot == "RMSD":
+            job = generate_rmsd_plot.apply_async(args=[native_pdb_path, traj_xtc_path, files_path, plot_dir, session_id])
+            plot_style = "scatter2"
+        elif plot == "ERMSD":
+            job = generate_ermsd_plot.apply_async(args=[native_pdb_path, traj_xtc_path, files_path, plot_dir, session_id])
+            plot_style = "scatter"
+        elif plot == "TORSION":
+            torsion_residue = session.get("torsionResidue", 0)
+            job = generate_torsion_plot.apply_async(args=[native_pdb_path, traj_xtc_path, files_path, plot_dir, session_id, torsion_residue])
+            plot_style = "torsion"
+        elif plot == "SEC_STRUCTURE":
+            job = generate_sec_structure_plot.apply_async(args=[native_pdb_path, traj_xtc_path, files_path, plot_dir, session_id])
+            plot_style = "bar"
+        elif plot == "DOTBRACKET":
+            job = generate_dotbracket_plot.apply_async(args=[native_pdb_path, traj_xtc_path, files_path, plot_dir, session_id])
+            plot_style = "dotbracket"
+        elif plot == "ARC":
+            job = generate_arc_plot.apply_async(args=[native_pdb_path, traj_xtc_path, files_path, plot_dir, session_id])
+            plot_style = "arc"
+        elif plot == "CONTACT_MAPS":
+            job = generate_contact_map_plot.apply_async(args=[native_pdb_path, traj_xtc_path, files_path, plot_dir, generate_data_path, session_id])
+            plot_style = "CONTACT_MAPS"
+        elif plot == "ANNOTATE":
+            job = generate_annotate_plot.apply_async(args=[native_pdb_path, traj_xtc_path, files_path, plot_dir, session_id])
+            plot_style = "annotate"
+        elif plot == "DS_MOTIF":
+            job = generate_ds_motif_plot.apply_async(args=[native_pdb_path, traj_xtc_path, files_path, plot_dir, session_id])
+            plot_style = "motif"
+        elif plot == "SS_MOTIF":
+            job = generate_ss_motif_plot.apply_async(args=[native_pdb_path, traj_xtc_path, files_path, plot_dir, session_id])
+            plot_style = "motif"
+        elif plot == "JCOUPLING":
+            job = generate_jcoupling_plot.apply_async(args=[native_pdb_path, traj_xtc_path, files_path, plot_dir, session_id])
+            plot_style = "scatter"
+        elif plot == "ESCORE":
+            job = generate_escore_plot.apply_async(args=[native_pdb_path, traj_xtc_path, files_path, plot_dir, session_id])
+            plot_style = "scatter"
+        elif plot == "LANDSCAPE":
+            landscape_params = [
+                session.get("landscape_stride", 1),
+                session.get("landscape_first_component", 1),
+                session.get("landscape_second_component", 1)
+            ]
+            job = generate_landscape_plot.apply_async(args=[native_pdb_path, traj_xtc_path, files_path, plot_dir, session_id, landscape_params, generate_data_path])
+            plot_style = "surface"
+        elif plot == "BASE_PAIRING":
+            job = generate_2Dpairing_plot.apply_async(args=[native_pdb_path, traj_xtc_path, files_path, plot_dir, session_id])
+            plot_style = "2Dpairing"
+        else:
+            logger.warning(f"Unknown plot type: {plot}")
+            return None
+
+        if job:
+            logger.info(f"Enqueued {plot} calculation with job ID: {job.id}")
+            return [plot, plot_style, job.id]  # Return job ID, not the job object
+        return None
+    
+    # Parallel job submission with dependency management
+    completed_dependencies = set()
+    pending_plots = list(optimized_order)
+    
+    while pending_plots or active_jobs:
+        # Submit new jobs for plots whose dependencies are met
+        submittable_plots = []
+        for plot in pending_plots[:]:
+            plot_spec = planned_calculations[plot]
+            dependencies_met = all(dep in completed_dependencies for dep in plot_spec.dependencies)
+            
+            if dependencies_met and len(active_jobs) < max_parallel_jobs:
+                submittable_plots.append(plot)
+                pending_plots.remove(plot)
+        
+        # Submit jobs in parallel
+        for plot in submittable_plots:
+            try:
+                job_info = submit_plot_job(plot)
+                if job_info:
+                    plot_data.append(job_info)
+                    # job_info[2] is now job.id (string), but we need to get the job object for monitoring
+                    job_id = job_info[2]
+                    active_jobs[plot] = celery_app.AsyncResult(job_id)  # Store the job object for monitoring
+                    logger.info(f"Submitted {plot} for parallel execution")
+                    
+                    socketio.emit('update_progress', {"progress": 60, "message": f"{plot} plot enqueued for parallel execution."}, to=session_id)
+                    socketio.sleep(0.1)
+                    
             except Exception as e:
                 logger.error(f"Failed to enqueue {plot} calculation: {str(e)}")
                 socketio.emit('update_progress', {"progress": 60, "message": f"Error enqueueing {plot}: {str(e)}"}, to=session_id)
-
-            socketio.emit('update_progress', {"progress": 60, "message": f"{plot} plot enqueued."}, to=session_id)
-            socketio.sleep(0.1)  # Ensure the message is sent
+        
+        # Check for completed jobs
+        completed_jobs = []
+        for plot, job in active_jobs.items():
+            if job.ready():
+                completed_jobs.append(plot)
+                completed_dependencies.add(plot)
+                logger.info(f"Completed {plot} calculation in parallel")
+        
+        # Remove completed jobs
+        for plot in completed_jobs:
+            del active_jobs[plot]
+        
+        # Brief sleep to prevent busy waiting
+        if active_jobs:
+            time.sleep(0.1)
 
     socketio.emit('update_progress', {"progress": 70, "message": "Waiting for plot jobs to complete..."}, to=session_id)
     socketio.sleep(0.1)  # Ensure the message is sent
 
     # Wait for and process results with better error handling
-    completed_plot_data = []
-    total_jobs = len(plot_data)
-    completed_jobs = 0
+    # Note: Import app2 once at the module level would be better, but doing it here for clarity
+    from tasks_celery import app2 as celery_app
     
-    for plot_type, plot_style, job_id in plot_data:
-        try:
-            job = app.AsyncResult(job_id)
-            start_time = time.time()
-            
-            # Wait with timeout and progress updates
-            while not job.ready():
-                elapsed = time.time() - start_time
-                if elapsed > 600:  # 10 minute timeout
-                    logger.error(f"Timeout waiting for {plot_type} calculation")
-                    socketio.emit('update_progress', {"progress": 80, "message": f"Timeout: {plot_type} calculation taking too long"}, to=session_id)
-                    break
-                time.sleep(0.1)
+    if not use_optimized_workflow:
+        completed_plot_data = []
+        total_jobs = len(plot_data)
+        completed_jobs = 0
 
-            if job.successful():
-                completed_plot_data.append([plot_type, plot_style, job.result])
-                completed_jobs += 1
-                progress = 70 + (completed_jobs / total_jobs) * 20
-                logger.info(f"Completed {plot_type} calculation successfully")
-                socketio.emit('update_progress', {"progress": progress, "message": f"{plot_type} plot completed ({completed_jobs}/{total_jobs})."}, to=session_id)
-            else:
-                error_msg = str(job.result) if job.result else "Unknown error"
-                logger.error(f"Error in {plot_type} calculation: {error_msg}")
-                socketio.emit('update_progress', {"progress": 80, "message": f"Error with {plot_type} plot: {error_msg}"}, to=session_id)
-                
-        except Exception as e:
-            logger.error(f"Exception processing {plot_type} result: {str(e)}")
-            socketio.emit('update_progress', {"progress": 80, "message": f"Exception with {plot_type}: {str(e)}"}, to=session_id)
+        for plot_type, plot_style, job_id in plot_data:
+            try:
+                job = celery_app.AsyncResult(job_id)
+                start_time = time.time()
 
+                # Wait with timeout and progress updates
+                while not job.ready():
+                    elapsed = time.time() - start_time
+                    if elapsed > 600:  # 10 minute timeout
+                        logger.error(f"Timeout waiting for {plot_type} calculation")
+                        socketio.emit('update_progress', {"progress": 80, "message": f"Timeout: {plot_type} calculation taking too long"}, to=session_id)
+                        break
+                    time.sleep(0.1)
+
+                if job.successful():
+                    completed_plot_data.append([plot_type, plot_style, job.result])
+                    completed_jobs += 1
+                    progress = 70 + (completed_jobs / total_jobs) * 20
+                    logger.info(f"Completed {plot_type} calculation successfully")
+                    socketio.emit('update_progress', {"progress": progress, "message": f"{plot_type} plot completed ({completed_jobs}/{total_jobs})."}, to=session_id)
+                else:
+                    error_msg = str(job.result) if job.result else "Unknown error"
+                    logger.error(f"Error in {plot_type} calculation: {error_msg}")
+                    socketio.emit('update_progress', {"progress": 80, "message": f"Error with {plot_type} plot: {error_msg}"}, to=session_id)
+
+            except Exception as e:
+                logger.error(f"Exception processing {plot_type} result: {str(e)}")
+                socketio.emit('update_progress', {"progress": 80, "message": f"Exception with {plot_type}: {str(e)}"}, to=session_id)
+
+    # Ensure completed_plot_data is defined
+    if not 'completed_plot_data' in locals():
+        logger.error("completed_plot_data not defined - this indicates a workflow issue")
+        completed_plot_data = []
+    
     pickle_file_path = os.path.join(directory_path, "plot_data.pkl")
     print(f"Dir Path = {directory_path}")
     print(f"Completed Plot Data: {completed_plot_data}")  # Debugging line to check the data
+    print(f"Number of completed plots: {len(completed_plot_data) if completed_plot_data else 0}")
+    
     with open(pickle_file_path, "wb") as f:
         pickle.dump(completed_plot_data, f, protocol=pickle.HIGHEST_PROTOCOL)
 
     socketio.emit('update_progress', {"progress": 100, "message": "Trajectory analysis complete."}, to=session_id)
 
+    # Create rotation matrix string for template
+    try:
+        r_matrix_str = str(r_matrix.tolist()) if 'r_matrix' in locals() else "[]"
+    except:
+        r_matrix_str = "[]"
+    
     return render_template(
             "view_trajectory.html",
             session_id=session_id,
