@@ -302,25 +302,193 @@ def generate_torsion_plot(self, topology_file, trajectory_file, files_path, plot
 @log_task
 def generate_sec_structure_plot(self, topology_file, trajectory_file, files_path, plot_dir, session_id):
     """Generate secondary structure plot"""
-    return {"path": f"static/{session_id}/sec_structure_plot.png", "status": "placeholder"}
+    try:
+        if not BARNABA_AVAILABLE:
+            raise ImportError("Barnaba not available")
+            
+        import barnaba as bb
+        stackings, pairings, res = bb.annotate(trajectory_file, topology=topology_file)
+        dotbracket_data, res2 = bb.dot_bracket(pairings, res)
+        return [dotbracket_data, res2.strip()]
+    except Exception as exc:
+        logger.error(f"Secondary structure calculation failed: {str(exc)}")
+        raise exc
 
 @app.task(bind=True, max_retries=3)
 @log_task
 def generate_dotbracket_plot(self, topology_file, trajectory_file, files_path, plot_dir, session_id):
     """Generate dot-bracket plot"""
-    return {"path": f"static/{session_id}/dotbracket_plot.png", "status": "placeholder"}
+    try:
+        # Load pre-computed annotate data if available
+        annotate_path = os.path.join("static", session_id, "annotate_data.pkl")
+        if os.path.exists(annotate_path):
+            with open(annotate_path, 'rb') as f:
+                stackings, pairings, res = pickle.load(f)
+            print(f"LOADED ANNOTATE FROM SAVED DATA FOR DOTBRACKET")
+        else:
+            # Fallback: compute if not available
+            if not BARNABA_AVAILABLE:
+                raise ImportError("Barnaba not available")
+            import barnaba as bb
+            stackings, pairings, res = bb.annotate(trajectory_file, topology=topology_file)
+        
+        dotbracket_data = bb.dot_bracket(pairings, res)[0]
+        
+        try:
+            from create_plots import plot_dotbracket
+            fig = plot_dotbracket(dotbracket_data)
+            fig.write_html(os.path.join(plot_dir, "dotbracket_timeline_plot.html"))
+            plotly_data = plotly_to_json(fig)
+            return plotly_data
+        except ImportError:
+            return {"path": f"static/{session_id}/dotbracket_plot.png", "status": "fallback"}
+            
+    except Exception as exc:
+        logger.error(f"Dotbracket calculation failed: {str(exc)}")
+        raise exc
 
 @app.task(bind=True, max_retries=3)
 @log_task
 def generate_arc_plot(self, topology_file, trajectory_file, files_path, plot_dir, session_id):
     """Generate arc plot"""
-    return {"path": f"static/{session_id}/arc_plot.png", "status": "placeholder"}
+    try:
+        print("ARC")
+        # Load pre-computed annotate data if available
+        annotate_path = os.path.join("static", session_id, "annotate_data.pkl")
+        if os.path.exists(annotate_path):
+            with open(annotate_path, 'rb') as f:
+                stackings, pairings, res = pickle.load(f)
+            print(f"LOADED ANNOTATE FROM SAVED DATA FOR ARC")
+        else:
+            # Fallback: compute if not available
+            if not BARNABA_AVAILABLE:
+                raise ImportError("Barnaba not available")
+            import barnaba as bb
+            stackings, pairings, res = bb.annotate(trajectory_file, topology=topology_file)
+        
+        dotbracket_data = bb.dot_bracket(pairings, res)[0]
+        # Dotbracket for the native state:
+        stackings_native, pairings_native, res_native = bb.annotate(topology_file)
+        dotbracket_native = bb.dot_bracket(pairings_native, res_native)[0]
+        print(f"DOTBRACKET NATIVE = {str(dotbracket_native[0])}")
+
+        sequence = ''.join([item[0] for item in res])
+        resids = [item.split("_")[1] for item in res]
+        print(f"ARC SEQUENCE = {str(sequence)}")
+        
+        try:
+            import pandas as pd
+            dotbracket_df = pd.DataFrame(dotbracket_data, columns=["DotBracket"])
+            dotbracket_df.to_csv(os.path.join(files_path, "dotbracket_data.csv"), index=False)
+            
+            from create_plots import plot_diagram_frequency
+            fig = plot_diagram_frequency(sequence, dotbracket_data, dotbracket_native)
+            fig.write_html(os.path.join(plot_dir, "arc_diagram_plot.html"))
+            plotly_data = plotly_to_json(fig)
+            return [plotly_data, resids]
+        except ImportError:
+            return {"path": f"static/{session_id}/arc_plot.png", "status": "fallback"}
+            
+    except Exception as exc:
+        logger.error(f"Arc plot calculation failed: {str(exc)}")
+        raise exc
 
 @app.task(bind=True, max_retries=3)
 @log_task
 def generate_contact_map_plot(self, topology_file, trajectory_file, files_path, plot_dir, generate_data_path, session_id):
     """Generate contact map plot"""
-    return {"path": f"static/{session_id}/contact_map_plot.png", "status": "placeholder"}
+    def process_barnaba_pairings(pairings, res):
+        """Process barnaba pairings and residue information into frames dictionary"""
+        import pandas as pd
+        frames_dict = {}
+        # Create sequence from residue information
+        sequence = [r[0] for r in res]  # Assuming res contains nucleotide types
+
+        # Process each frame
+        for frame_num, frame_data in enumerate(pairings):
+            base_pairs = []
+
+            # Each frame contains a list of pairs and their annotations
+            if len(frame_data) == 2:
+                pair_indices = frame_data[0]
+                annotations = frame_data[1]
+
+                for pair_idx, pair in enumerate(pair_indices):
+                    if not pair:
+                        continue
+
+                    res_i = pair[0] + 1  # Convert to 1-based indexing
+                    res_j = pair[1] + 1
+
+                    # Get residue names from the sequence
+                    if 0 <= res_i - 1 < len(sequence) and 0 <= res_j - 1 < len(sequence):
+                        res_i_name = f"{sequence[res_i - 1]}{res_i}"
+                        res_j_name = f"{sequence[res_j - 1]}{res_j}"
+                    else:
+                        res_i_name = f"N{res_i}"
+                        res_j_name = f"N{res_j}"
+
+                    anno = annotations[pair_idx] if pair_idx < len(annotations) else 'XXX'
+
+                    base_pairs.append({
+                        'res_i': res_i,
+                        'res_j': res_j,
+                        'res_i_name': res_i_name,
+                        'res_j_name': res_j_name,
+                        'anno': anno
+                    })
+
+            # Always assign a DataFrame (even if empty)
+            frames_dict[frame_num] = pd.DataFrame(base_pairs)
+
+        return frames_dict, sequence
+
+    try:
+        # Load pre-computed annotate data if available
+        annotate_path = os.path.join("static", session_id, "annotate_data.pkl")
+        if os.path.exists(annotate_path):
+            with open(annotate_path, 'rb') as f:
+                stackings, pairings, res = pickle.load(f)
+            print(f"LOADED ANNOTATE FROM SAVED DATA FOR CONTACT MAP")
+        else:
+            # Fallback: compute if not available
+            if not BARNABA_AVAILABLE:
+                raise ImportError("Barnaba not available")
+            import barnaba as bb
+            stackings, pairings, res = bb.annotate(trajectory_file, topology=topology_file)
+
+        # Process barnaba results into our format
+        frames_dict, sequence = process_barnaba_pairings(pairings, res)
+        print(len(frames_dict))
+        print(f"RNA length: {len(sequence)} nucleotides")
+        print(f"Found {len(frames_dict)} frames in the data")
+        frame_num, frame_data = sorted(frames_dict.items())[0]
+
+        # Save pairings to CSV
+        import pandas as pd
+        pairings_df = pd.DataFrame(pairings)
+        pairings_df.to_csv(os.path.join(files_path, "pairings.csv"), index=False)
+
+        # Save frames_dict and sequence to pickle
+        os.makedirs(generate_data_path, exist_ok=True)
+        data_to_save = {
+            'frames_dict': frames_dict,
+            'sequence': sequence
+        }
+        with open(os.path.join(generate_data_path, "contact_map_data.pkl"), 'wb') as f:
+            pickle.dump(data_to_save, f)
+
+        try:
+            from create_plots import plot_rna_contact_map
+            fig = plot_rna_contact_map(frame_data, sequence, output_file=os.path.join(plot_dir, "contact_map.html"), frame_number=frame_num)
+            plotly_data = plotly_to_json(fig)
+            return plotly_data
+        except ImportError:
+            return {"path": f"static/{session_id}/contact_map_plot.png", "status": "fallback"}
+            
+    except Exception as exc:
+        logger.error(f"Contact map calculation failed: {str(exc)}")
+        raise exc
 
 @app.task(bind=True, max_retries=3)
 @log_task
@@ -331,16 +499,17 @@ def generate_annotate_plot(self, topology_file, trajectory_file, files_path, plo
         annotate_path = os.path.join("static", session_id, "annotate_data.pkl")
         if os.path.exists(annotate_path):
             with open(annotate_path, 'rb') as f:
-                annotate_data = pickle.load(f)
+                stackings, pairings, res = pickle.load(f)
+            print(f"LOADED ANNOTATE FROM SAVED DATA")
         else:
             # Fallback: compute if not available
+            print(f"USED FALLBACK")
             if not BARNABA_AVAILABLE:
                 raise ImportError("Barnaba not available and no pre-computed data")
             import barnaba as bb
-            annotate_data = bb.annotate(trajectory_file, topology=topology_file)
+            stackings, pairings, res = bb.annotate(trajectory_file, topology=topology_file)
         
-        # Simple placeholder for annotate plot
-        return {"path": f"static/{session_id}/annotate_plot.png", "status": "success"}
+        return ["ANNOTATE", "annotate", stackings, pairings, res]
         
     except Exception as e:
         logger.error(f"Annotate plot generation failed: {e}")
@@ -362,7 +531,16 @@ def generate_ss_motif_plot(self, topology_file, trajectory_file, files_path, plo
 @log_task
 def generate_jcoupling_plot(self, topology_file, trajectory_file, files_path, plot_dir, session_id):
     """Generate J-coupling plot"""
-    return {"path": f"static/{session_id}/jcoupling_plot.png", "status": "placeholder"}
+    try:
+        if not BARNABA_AVAILABLE:
+            raise ImportError("Barnaba not available")
+            
+        import barnaba as bb
+        couplings, res = bb.jcouplings(trajectory_file, topology=topology_file)
+        return ["JCOUPLING", "jcoupling", couplings]
+    except Exception as exc:
+        logger.error(f"J-coupling calculation failed: {str(exc)}")
+        raise exc
 
 @app.task(bind=True, max_retries=3)
 @log_task
@@ -373,14 +551,63 @@ def generate_escore_plot(self, topology_file, trajectory_file, files_path, plot_
 @app.task(bind=True, max_retries=3)
 @log_task
 def generate_landscape_plot(self, topology_file, trajectory_file, files_path, plot_dir, session_id, landscape_params, generate_data_path):
-    """Generate landscape plot"""
-    return {"path": f"static/{session_id}/landscape_plot.png", "status": "placeholder"}
+    """Generate landscape plot using pre-computed metrics"""
+    try:
+        # Load pre-computed RMSD and eRMSD data if available
+        rmsd_data = None
+        ermsd_data = None
+        
+        rmsd_path = os.path.join("static", session_id, "rmsd_data.pkl")
+        if os.path.exists(rmsd_path):
+            with open(rmsd_path, 'rb') as f:
+                rmsd_data = pickle.load(f)
+            print(f"LOADED RMSD FROM SAVED DATA FOR LANDSCAPE")
+                
+        ermsd_path = os.path.join("static", session_id, "ermsd_data.pkl")
+        if os.path.exists(ermsd_path):
+            with open(ermsd_path, 'rb') as f:
+                ermsd_data = pickle.load(f)
+            print(f"LOADED eRMSD FROM SAVED DATA FOR LANDSCAPE")
+        
+        # If data not available, this is a placeholder implementation
+        if rmsd_data is None or ermsd_data is None:
+            logger.warning("Pre-computed metrics not available for landscape plot")
+            return {"path": f"static/{session_id}/landscape_plot.png", "status": "missing_data"}
+        
+        # Simple landscape plot implementation would go here
+        # For now, return placeholder since full landscape implementation is complex
+        return {"path": f"static/{session_id}/landscape_plot.png", "status": "placeholder"}
+        
+    except Exception as exc:
+        logger.error(f"Landscape plot calculation failed: {str(exc)}")
+        raise exc
 
 @app.task(bind=True, max_retries=3)
 @log_task
 def generate_2Dpairing_plot(self, topology_file, trajectory_file, files_path, plot_dir, session_id):
     """Generate 2D pairing plot"""
-    return {"path": f"static/{session_id}/2dpairing_plot.png", "status": "placeholder"}
+    try:
+        if not BARNABA_AVAILABLE:
+            raise ImportError("Barnaba not available")
+            
+        import barnaba as bb
+        import numpy as np
+        rvecs_traj, res_traj = bb.dump_rvec(trajectory_file, topology=topology_file, cutoff=100.0)
+        nonzero = np.where(np.sum(rvecs_traj**2, axis=3) > 0.01)
+        rr = rvecs_traj[nonzero]
+        
+        try:
+            from create_plots import base_pairs_visualisation
+            fig = base_pairs_visualisation(rr)
+            fig.write_html(os.path.join(plot_dir, "2D_pairing.html"))
+            plotly_data = plotly_to_json(fig)
+            return plotly_data
+        except ImportError:
+            return {"path": f"static/{session_id}/2dpairing_plot.png", "status": "fallback"}
+            
+    except Exception as exc:
+        logger.error(f"2D pairing calculation failed: {str(exc)}")
+        raise exc
 
 if __name__ == "__main__":
     logger.info("Clean RNA analysis tasks module loaded")
