@@ -126,8 +126,107 @@ def plot_dotbracket(dotbracket_data: List[str]) -> go.Figure:
     fig = go.Figure(data=traces, layout=layout)
     return fig
 
+def plot_torsion_time_series(angles: np.ndarray, res: List[str], torsionResidue: int) -> go.Figure:
+    """Create time series plot for torsion angles"""
+    if isinstance(torsionResidue, str) and torsionResidue.isdigit():
+        residue_index = int(torsionResidue)
+    elif isinstance(torsionResidue, int):
+        residue_index = torsionResidue
+    else:
+        residue_index = res.index(str(torsionResidue)) if str(torsionResidue) in res else 0
+    
+    residue_index = min(residue_index, len(res) - 1) if len(res) > 0 else 0
+    specific_residue_angles = angles[:, residue_index, :]
+    angles_names = ["alpha", "beta", "gamma", "delta", "epsilon", "zeta", "chi"]
+    colors = ["#636efa", "#ef553b", "#00cc96", "#a45bf9", "#fa9f5e", "#1ad0f2", "#ff6692"]
+    
+    fig = go.Figure()
+    
+    # Add time series traces for each angle
+    for i in range(7):
+        y_values = specific_residue_angles[:, i]
+        x_values = np.arange(len(y_values))
+        valid_indices = ~np.isnan(y_values)
+        
+        fig.add_trace(go.Scattergl(
+            x=x_values[valid_indices],
+            y=y_values[valid_indices],
+            mode="lines+markers",
+            name=f"{angles_names[i]}",
+            line=dict(color=colors[i], width=2),
+            marker=dict(size=3, color=colors[i]),
+        ))
+    
+    fig.update_layout(
+        title=f"Torsion Angles Time Series - Residue {res[residue_index]} ({residue_index})",
+        xaxis_title="Frame Number",
+        yaxis_title="Angle (degrees)",
+        height=600,
+        showlegend=True,
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="center", x=0.5)
+    )
+    
+    return fig
+
+def plot_torsion_distributions(angles: np.ndarray, res: List[str], torsionResidue: int) -> go.Figure:
+    """Create distribution plot for torsion angles"""
+    if isinstance(torsionResidue, str) and torsionResidue.isdigit():
+        residue_index = int(torsionResidue)
+    elif isinstance(torsionResidue, int):
+        residue_index = torsionResidue
+    else:
+        residue_index = res.index(str(torsionResidue)) if str(torsionResidue) in res else 0
+    
+    residue_index = min(residue_index, len(res) - 1) if len(res) > 0 else 0
+    specific_residue_angles = angles[:, residue_index, :]
+    angles_names = ["alpha", "beta", "gamma", "delta", "epsilon", "zeta", "chi"]
+    colors = ["#636efa", "#ef553b", "#00cc96", "#a45bf9", "#fa9f5e", "#1ad0f2", "#ff6692"]
+    
+    # Create subplots with 7 rows and 1 column for distributions
+    fig = make_subplots(
+        rows=7,
+        cols=1,
+        subplot_titles=[f"{angle} Distribution" for angle in angles_names],
+        vertical_spacing=0.06,
+    )
+    
+    for i in range(7):
+        y_values = specific_residue_angles[:, i]
+        valid_indices = ~np.isnan(y_values)
+        
+        fig.add_trace(
+            go.Histogram(
+                x=y_values[valid_indices],
+                name=f"{angles_names[i]}",
+                marker=dict(color=colors[i], opacity=0.7),
+                nbinsx=30,
+                showlegend=False,
+            ),
+            row=i + 1,
+            col=1,
+        )
+        
+        # Update axis labels for each subplot
+        fig.update_xaxes(title_text="Angle (degrees)", row=i+1, col=1)
+        fig.update_yaxes(title_text="Frequency", row=i+1, col=1)
+    
+    fig.update_layout(
+        title=f"Torsion Angles Distributions - Residue {res[residue_index]} ({residue_index})",
+        height=1400,
+        showlegend=False
+    )
+    
+    return fig
+
 @handle_plot_errors
-def plot_torsion(angles: np.ndarray, res: List[str], torsionResidue: int) -> go.Figure:
+def plot_torsion(angles: np.ndarray, res: List[str], torsionResidue: int) -> List[go.Figure]:
+    """Create both time series and distribution plots for torsion angles"""
+    time_series_fig = plot_torsion_time_series(angles, res, torsionResidue)
+    distribution_fig = plot_torsion_distributions(angles, res, torsionResidue)
+    return [time_series_fig, distribution_fig]
+
+# Keep the old implementation as fallback but rename it
+def plot_torsion_old(angles: np.ndarray, res: List[str], torsionResidue: int) -> go.Figure:
     if isinstance(torsionResidue, str) and torsionResidue.isdigit():
         residue_index = int(torsionResidue)
     elif isinstance(torsionResidue, int):
