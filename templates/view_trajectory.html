@@ -564,10 +564,7 @@
 
             console.log("Trajectory loaded successfully");
 
-            // Hide loading overlay if plots are also loaded
-            if (state.plotsLoaded) {
-                elements_doc.loadingOverlay.style.display = 'none';
-            }
+            // Loading overlay will be hidden by loadPlots() function
         })
         .catch(error => {
             console.error("Error loading trajectory:", error);
