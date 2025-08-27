@@ -308,3 +308,120 @@ box-shadow: 0px 0px 15px rgba(0, 0, 0, 0.2);
 transition: all 0.3s ease-in-out;
 overflow: auto;
 }
+
+/* Header styling adjustments */
+.title {
+    font-size: 1.5rem !important; /* Smaller title */
+}
+
+.session-info-tooltip {
+    color: #3498db;
+    cursor: pointer;
+    margin-left: 5px;
+    font-weight: bold;
+    font-size: 1.2em;
+    display: inline-block;
+    padding: 2px 6px;
+    border-radius: 50%;
+    background: #f0f8ff;
+    border: 1px solid #3498db;
+    transition: all 0.2s ease;
+}
+
+.session-info-tooltip:hover {
+    background: #3498db;
+    color: white;
+    transform: scale(1.1);
+}
+
+/* Responsive Design - Mobile and Tablet Layout */
+@media screen and (max-width: 1023px) {
+    /* Enable scrolling on mobile */
+    body {
+        overflow: auto !important;
+        height: auto !important;
+    }
+    
+    .trajectory-viewer {
+        height: auto;
+        overflow: visible;
+    }
+    
+    /* Stack columns vertically on smaller screens */
+    .main-content-container.columns {
+        flex-direction: column !important;
+        height: auto !important;
+    }
+    
+    /* Viewer column (left column) - shows first */
+    .viewer-column.column.is-half {
+        width: 100% !important;
+        order: 1;
+        margin-bottom: 1rem;
+        height: auto;
+    }
+    
+    /* Plots column (right column) - shows second */
+    .plots-column.column.is-half {
+        width: 100% !important;
+        order: 2;
+        height: auto;
+    }
+    
+    /* Adjust viewer container for mobile */
+    .viewer-container {
+        min-height: 400px;
+        height: 50vh;
+        margin-bottom: 1rem;
+        position: relative;
+    }
+    
+    /* Adjust plots container for mobile */
+    .plots-column {
+        max-height: none !important;
+        overflow-y: visible !important;
+        height: auto !important;
+    }
+    
+    /* Ensure plots are properly sized on mobile */
+    .plot-container {
+        margin-bottom: 1rem;
+        position: relative;
+    }
+}
+
+/* Extra responsive adjustments for very small screens */
+@media screen and (max-width: 768px) {
+    .trajectory-viewer {
+        padding: 0 5px;
+    }
+    
+    .viewer-container {
+        height: 40vh;
+        min-height: 300px;
+    }
+    
+    /* Make header more compact on mobile */
+    .header-container {
+        flex-direction: column;
+        gap: 0.5rem;
+    }
+    
+    .title-container,
+    .session-info-container,
+    .links-container {
+        text-align: center;
+        margin-bottom: 0.5rem;
+    }
+    
+    /* Even smaller title on mobile */
+    .title {
+        font-size: 1.25rem !important;
+    }
+    
+    /* Adjust session info tooltip for mobile */
+    .session-info-tooltip {
+        font-size: 1em;
+        padding: 1px 4px;
+    }
+}

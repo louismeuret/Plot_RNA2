@@ -26,12 +26,8 @@
         <div class="session-info-container">
             <h2 class="session">
                 Session: <span id="session-id">{{ session_id }}</span>
+                <span class="session-info-tooltip" onclick="showSessionInfo()">*</span>
             </h2>
-            <p class="session-description">
-                The session ID uniquely identifies your trajectory visualization
-                session. You can share this link with others to allow them to
-                view your session.
-            </p>
             <button id="share-button" class="share-button">
                 Share Session
             </button>
@@ -702,12 +698,18 @@
         const plotsContainer = document.getElementById("sortable-container");
 
         function adjustScrolling() {
-            // Keep body overflow hidden
-            document.body.style.overflow = "hidden";
-
-            // Ensure plots column can scroll internally
-            plotsColumn.style.overflowY = "auto";
-            plotsColumn.style.height = "100%";
+            // Only keep body overflow hidden on desktop screens
+            if (window.innerWidth > 1023) {
+                document.body.style.overflow = "hidden";
+                // Ensure plots column can scroll internally on desktop
+                plotsColumn.style.overflowY = "auto";
+                plotsColumn.style.height = "100%";
+            } else {
+                // Enable scrolling on mobile/tablet
+                document.body.style.overflow = "auto";
+                plotsColumn.style.overflowY = "visible";
+                plotsColumn.style.height = "auto";
+            }
 
             // Ensure plots container can expand fully
             plotsContainer.style.height = "100%";
@@ -817,6 +819,11 @@
         }
     }
     */
+
+    // Function to show session info tooltip
+    function showSessionInfo() {
+        alert("Session Information\n\nThe session ID uniquely identifies your trajectory visualization session. You can share this link with others to allow them to view your session.");
+    }
 
     // Setup event listeners after everything is loaded  
     window.addEventListener("load", function () {
