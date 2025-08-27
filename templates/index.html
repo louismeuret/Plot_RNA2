@@ -637,6 +637,22 @@ select {
                 const sessionId = "{{ session_id }}";
                 console.log("SESSION ID:");
                 console.log(sessionId);
+                
+                // Clear all cached files from this website when loading index page
+                if (window.trajectoryCache) {
+                    console.log("Index: Clearing entire trajectory cache on page load...");
+                    window.trajectoryCache.clearCache().then((success) => {
+                        if (success) {
+                            console.log("Success: Index: All cached files cleared from website");
+                        } else {
+                            console.warn("Warning: Index: Failed to clear cache");
+                        }
+                    }).catch(error => {
+                        console.error("Error: Index: Error clearing cache:", error);
+                    });
+                } else {
+                    console.warn("Warning: Index: TrajectoryCache not available");
+                }
 
                 
 
@@ -911,13 +927,24 @@ select {
                 cacheStatus[fileType] = { cached: false, caching: true, file: file };
                 updateCacheIndicator(fileType, 'caching');
                 
-                // Create blob from file and cache it
+                // Convert file to ArrayBuffer and cache it
                 const sessionId = "{{ session_id }}";
-                const blob = new Blob([file], { type: file.type });
+                
+                // Use temporary filenames based on file type, will be renamed later
+                const standardFileName = fileType === 'topology' ? `temp_structure_${sessionId}` : `temp_trajectory_${sessionId}`;
                 
                 // Cache the file using our trajectory cache
                 if (window.trajectoryCache) {
-                    window.trajectoryCache.cacheFile(sessionId, file.name, blob)
+                    // Clear existing cache for this session before adding new files
+                    console.log(`Upload Cache: Clearing existing cache for session ${sessionId}...`);
+                    window.trajectoryCache.clearCache(sessionId).then(() => {
+                        console.log(`Upload Cache: Cache cleared, now caching ${fileType} file as "${standardFileName}"...`);
+                        
+                        // Convert file to ArrayBuffer as required by storeFile
+                        return file.arrayBuffer().then(arrayBuffer => {
+                            return window.trajectoryCache.storeFile(sessionId, standardFileName, arrayBuffer, file.type);
+                        });
+                    })
                         .then(success => {
                             if (success) {
                                 console.log(`Success: Upload Cache: Successfully cached ${fileType}: ${file.name}`);

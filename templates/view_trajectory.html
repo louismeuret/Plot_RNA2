@@ -114,7 +114,8 @@
                     </button>
                 </div>
                 
-                <!-- Cache Controls -->
+                <!-- Cache Controls (Disabled for production) -->
+                <!--
                 <div class="cache-controls-section" style="margin-top: 15px; padding: 10px; border: 1px solid #ddd; border-radius: 5px;">
                     <h6 style="margin: 0 0 10px 0; font-size: 12px; color: #666;">Trajectory Cache</h6>
                     <div class="cache-controls" style="display: flex; gap: 5px; flex-wrap: wrap;">
@@ -128,6 +129,7 @@
                     </div>
                     <div id="uploadCacheStatus" style="margin-top: 5px; font-size: 10px; color: #666;"></div>
                 </div>
+                -->
             </div>
         </div>
 
@@ -270,6 +272,47 @@
         }
     }
 
+    // Copy temporary cached files to correct names if they exist
+    async function copyTemporaryCacheFiles() {
+        try {
+            const cache = window.trajectoryCache;
+            const sessionId = CONFIG.sessionId;
+            
+            // Extract actual filenames from CONFIG URLs
+            const nativeFileName = CONFIG.nativePdb.split('/').pop();
+            const trajFileName = CONFIG.trajXtc.split('/').pop();
+            
+            console.log(`Cache: Looking for temporary files to copy to "${nativeFileName}" and "${trajFileName}"`);
+            
+            // Check for temporary structure file
+            const tempStructureName = `temp_structure_${sessionId}`;
+            const tempStructureData = await cache.getFile(sessionId, tempStructureName);
+            if (tempStructureData) {
+                console.log(`Cache: Found temporary structure file, copying to "${nativeFileName}"`);
+                await cache.storeFile(sessionId, nativeFileName, tempStructureData);
+                await cache.deleteFile(sessionId, tempStructureName);
+                console.log(`Cache: Successfully copied structure file`);
+            }
+            
+            // Check for temporary trajectory file
+            const tempTrajectoryName = `temp_trajectory_${sessionId}`;
+            const tempTrajectoryData = await cache.getFile(sessionId, tempTrajectoryName);
+            if (tempTrajectoryData) {
+                console.log(`Cache: Found temporary trajectory file, copying to "${trajFileName}"`);
+                await cache.storeFile(sessionId, trajFileName, tempTrajectoryData);
+                await cache.deleteFile(sessionId, tempTrajectoryName);
+                console.log(`Cache: Successfully copied trajectory file`);
+            }
+            
+            if (!tempStructureData && !tempTrajectoryData) {
+                console.log('Cache: No temporary files found to copy');
+            }
+            
+        } catch (error) {
+            console.warn('Cache: Error copying temporary cache files:', error);
+        }
+    }
+
     // Enhanced trajectory loading with IndexedDB caching
     async function loadTrajectoryWithCache() {
         console.log('Cache: Starting cached trajectory loading...');
@@ -285,6 +328,10 @@
         if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.onMessage) {
             console.log('Cache: Browser extension detected, adding message handler protection');
         }
+        
+        // Copy temporary cached files to correct names if they exist
+        await copyTemporaryCacheFiles();
+        
         console.log('Cache: Configuration:', {
             sessionId: CONFIG.sessionId,
             nativePdb: CONFIG.nativePdb,
@@ -534,10 +581,8 @@
             elements_doc.plotsLoading.style.display = 'none';
             state.plotsLoaded = true;
 
-            // Hide loading overlay if viewer is also ready
-            if (state.viewerReady) {
-                elements_doc.loadingOverlay.style.display = 'none';
-            }
+            // Hide loading overlay once plots are loaded (regardless of viewer status)
+            elements_doc.loadingOverlay.style.display = 'none';
 
             initPlotInteractivity();
     }
@@ -686,7 +731,8 @@
         });
     }
 
-    // Cache management functions
+    // Cache management functions (Disabled for production)
+    /*
     async function showCacheStats() {
         try {
             console.log('Stats: UI: Requesting cache statistics...');
@@ -744,7 +790,9 @@
             alert('Error: Error clearing cache\n\nCheck console for details.');
         }
     }
+    */
 
+    /*
     async function updateCacheStatus() {
         try {
             const stats = await window.trajectoryCache.getCacheStats();
@@ -771,6 +819,7 @@
             statusElement.style.color = '#ff6b6b';
         }
     }
+    */
 
     // Setup event listeners after everything is loaded  
     window.addEventListener("load", function () {
@@ -778,9 +827,9 @@
         setupEventListeners();
         setupScrollBehavior();
         
-        // Initialize cache status
-        console.log('UI: Initializing cache status display...');
-        setTimeout(updateCacheStatus, 1000); // Delay to ensure cache is initialized
+        // Initialize cache status (Disabled for production)
+        // console.log('UI: Initializing cache status display...');
+        // setTimeout(updateCacheStatus, 1000); // Delay to ensure cache is initialized
         
         // Log cache readiness
         if (window.trajectoryCache) {
