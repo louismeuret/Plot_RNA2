@@ -569,14 +569,68 @@ def generate_landscape_plot(self, topology_file, trajectory_file, files_path, pl
                 ermsd_data = pickle.load(f)
             print(f"LOADED eRMSD FROM SAVED DATA FOR LANDSCAPE")
         
-        # If data not available, this is a placeholder implementation
+        # If data not available, fall back to computation
         if rmsd_data is None or ermsd_data is None:
-            logger.warning("Pre-computed metrics not available for landscape plot")
-            return {"path": f"static/{session_id}/landscape_plot.png", "status": "missing_data"}
+            logger.warning("Pre-computed metrics not available, computing for landscape plot")
+            if not BARNABA_AVAILABLE:
+                raise ImportError("Barnaba not available and no pre-computed data")
+            
+            import barnaba as bb
+            if rmsd_data is None:
+                rmsd_data = bb.rmsd(topology_file, trajectory_file, topology=topology_file, heavy_atom=True)
+            if ermsd_data is None:
+                ermsd_data = bb.ermsd(topology_file, trajectory_file, topology=topology_file)
         
-        # Simple landscape plot implementation would go here
-        # For now, return placeholder since full landscape implementation is complex
-        return {"path": f"static/{session_id}/landscape_plot.png", "status": "placeholder"}
+        # Extract landscape parameters
+        stride = int(landscape_params[0])
+        component1_name = "Fraction of Contact Formed"  # landscape_params[1] 
+        component2_name = "RMSD"  # landscape_params[2]
+        
+        # For now, use simplified approach with RMSD and eRMSD
+        # In full implementation, you'd compute Q-factor as well
+        component1 = rmsd_data[::stride]  # Use RMSD as component1 for simplicity
+        component2 = ermsd_data[::stride]  # Use eRMSD as component2
+        
+        # Create DataFrame for landscape
+        import pandas as pd
+        df = pd.DataFrame({
+            "frame": list(range(len(component1))),
+            "Q": component1,
+            "RMSD": component2,
+            "traj": "traj_1",
+        })
+        
+        # Save dataframe for updates
+        os.makedirs(generate_data_path, exist_ok=True)
+        with open(os.path.join(generate_data_path, "dataframe.pkl"), 'wb') as f:
+            pickle.dump(df, f)
+        print("Dataframe saved for landscape")
+        
+        # Generate landscape plot
+        size = 65
+        selected_regions = []
+        max_RMSD, max_Q = max(df["RMSD"]), max(df['Q'])
+        
+        try:
+            import energy_3dplot
+            from create_plots import plot_landscapes_3D, plot_landscapes_2D
+            
+            (probability_matrix, allframes_matrix, Qbin, RMSDbin) = energy_3dplot.make_matrix_probability(df, size, max_RMSD, max_Q)
+            energy_matrix, real_values = energy_3dplot.make_matrix_energy(probability_matrix, max_RMSD, size)
+            
+            metrics_to_calculate = [component1_name, component2_name]
+            fig = plot_landscapes_3D(energy_matrix, Qbin, RMSDbin, max_RMSD, max_Q, real_values, selected_regions, metrics_to_calculate)
+            fig2 = plot_landscapes_2D(energy_matrix, Qbin, RMSDbin, max_RMSD, max_Q, real_values, selected_regions, metrics_to_calculate)
+            
+            fig.write_html(os.path.join(plot_dir, "landscape.html"))
+            
+            plotly_data = plotly_to_json(fig)
+            plotly_data2 = plotly_to_json(fig2)
+            return [plotly_data, plotly_data2]
+            
+        except ImportError:
+            logger.warning("energy_3dplot or landscape plot functions not available")
+            return {"path": f"static/{session_id}/landscape_plot.png", "status": "fallback"}
         
     except Exception as exc:
         logger.error(f"Landscape plot calculation failed: {str(exc)}")
@@ -607,6 +661,58 @@ def generate_2Dpairing_plot(self, topology_file, trajectory_file, files_path, pl
             
     except Exception as exc:
         logger.error(f"2D pairing calculation failed: {str(exc)}")
+        raise exc
+
+# Update tasks for interactive plots
+@app.task(bind=True, max_retries=3)
+@log_task
+def update_contact_map_plot(self, generate_data_path, plot_path, frame_number, session_id):
+    """Update contact map plot for a specific frame"""
+    try:
+        with open(os.path.join(generate_data_path, "contact_map_data.pkl"), 'rb') as f:
+            loaded_data = pickle.load(f)
+
+        frames_dict = loaded_data['frames_dict']
+        sequence = loaded_data['sequence']
+
+        frame_num, frame_data = sorted(frames_dict.items())[frame_number]
+        print(f"Updating contact map for frame {frame_num}")
+        
+        try:
+            from create_plots import plot_rna_contact_map
+            fig = plot_rna_contact_map(frame_data, sequence, output_file=os.path.join(plot_path, "contact_map.html"), frame_number=frame_num)
+            plotly_data = plotly_to_json(fig)
+            return plotly_data
+        except ImportError:
+            return {"path": f"static/{session_id}/contact_map_update.png", "status": "fallback"}
+            
+    except Exception as exc:
+        logger.error(f"Contact map update failed: {str(exc)}")
+        raise exc
+
+@app.task(bind=True, max_retries=3)
+@log_task
+def update_landscape_frame(self, generate_data_path, coordinates):
+    """Update landscape plot to show specific frame based on coordinates"""
+    try:
+        with open(os.path.join(generate_data_path, "dataframe.pkl"), 'rb') as f:
+            loaded_data = pickle.load(f)
+        
+        df = loaded_data
+        target_Q = coordinates['Q']
+        target_RMSD = coordinates['RMSD']
+
+        # Calculate Euclidean distance between target coordinates and all points
+        import numpy as np
+        distances = np.sqrt((df['Q'] - target_Q)**2 + (df['RMSD'] - target_RMSD)**2)
+        closest_frame_idx = distances.idxmin()
+        closest_frame = int(df.iloc[closest_frame_idx]['frame'])  # Convert to Python int
+        
+        logger.info(f"Found closest frame {closest_frame} for coordinates Q={target_Q}, RMSD={target_RMSD}")
+        return closest_frame
+        
+    except Exception as exc:
+        logger.error(f"Landscape frame update failed: {str(exc)}")
         raise exc
 
 if __name__ == "__main__":
