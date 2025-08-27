@@ -454,6 +454,19 @@ def index():
         # Perform actions based on the form input, e.g., list files
         files = list_files(directory)
         return render_template("results.html", files=files, session_id=session_id)
+    
+    # Check if there's an existing session with results
+    existing_session_id = session.get("session_id")
+    if existing_session_id:
+        session_path = os.path.join(app.static_folder, existing_session_id)
+        if os.path.isdir(session_path):
+            # Check if there are any results in the session directory
+            plot_files = glob.glob(os.path.join(session_path, "plots", "*"))
+            if plot_files:
+                # Redirect to retrieve-results page
+                return redirect(url_for('retrieve_results', session_id=existing_session_id))
+    
+    # Create new session if no existing session with results
     session_id = uuid.uuid4().hex
     session["session_id"] = session_id
     return render_template("index.html", session_id=session_id)

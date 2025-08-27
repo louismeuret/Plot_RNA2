@@ -11,19 +11,33 @@ from celery import Celery
 from functools import wraps
 from create_plots import *
 from plotly.io import to_json
+import orjson
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
+
+# Register orjson serializer with Celery
+from kombu.serialization import register
+
+def orjson_dumps(obj):
+    return orjson.dumps(obj)
+
+def orjson_loads(s):
+    return orjson.loads(s)
+
+register('orjson', orjson_dumps, orjson_loads,
+         content_type='application/x-orjson',
+         content_encoding='utf-8')
 
 # Celery app configuration
 app = Celery('rna_tasks')
 app.conf.update(
     broker_url='redis://localhost:6379/0',
     result_backend='redis://localhost:6379/0',
-    task_serializer='json',
-    result_serializer='json',
-    accept_content=['json'],
+    task_serializer='orjson',
+    result_serializer='orjson',
+    accept_content=['orjson', 'json'],  # Accept both orjson and json for compatibility
     task_acks_late=False,
     worker_prefetch_multiplier=1,
     result_expires=3600,
@@ -285,29 +299,51 @@ def generate_torsion_plot(self, topology_file, trajectory_file, files_path, plot
             if isinstance(torsion_residue, dict):
                 logger.info(f"Using enhanced torsion plot with params: {torsion_residue}")
                 fig = plot_torsion_enhanced(angles, res, torsion_residue)
+                # Enhanced plot returns a single figure
+                plotly_data = plotly_to_json(fig)
+                return plotly_data
             else:
-                logger.info(f"Using single residue torsion plot for residue: {torsion_residue}")
-                fig = plot_torsion(angles, res, torsion_residue)
-            
-            logger.info(f"Torsion plot generated successfully")
-            
-            # Ensure plot directory exists
-            os.makedirs(plot_dir, exist_ok=True)
-            html_path = os.path.join(plot_dir, "torsion_plot.html")
-            fig.write_html(html_path)
-            logger.info(f"Torsion plot saved to: {html_path}")
-            
-            # Save data
-            import pandas as pd
-            angles_df = pd.DataFrame(angles.reshape(-1, angles.shape[-1]), 
-                                   columns=["alpha", "beta", "gamma", "delta", "epsilon", "zeta", "chi"])
-            csv_path = os.path.join(files_path, "torsion_angles.csv")
-            angles_df.to_csv(csv_path, index=False)
-            logger.info(f"Torsion data saved to: {csv_path}")
-            
-            plotly_data = plotly_to_json(fig)
-            logger.info(f"Torsion plot conversion to JSON successful")
-            return plotly_data
+                logger.info(f"Using dual torsion plots for residue: {torsion_residue}")
+                figures = plot_torsion(angles, res, torsion_residue)
+                
+                if isinstance(figures, list) and len(figures) == 2:
+                    time_series_fig, distribution_fig = figures
+                    logger.info(f"Generated time series and distribution plots")
+                    
+                    # Ensure plot directory exists
+                    os.makedirs(plot_dir, exist_ok=True)
+                    
+                    # Save both plots
+                    time_series_path = os.path.join(plot_dir, "torsion_time_series.html")
+                    distribution_path = os.path.join(plot_dir, "torsion_distribution.html")
+                    
+                    time_series_fig.write_html(time_series_path)
+                    distribution_fig.write_html(distribution_path)
+                    
+                    logger.info(f"Torsion plots saved to: {time_series_path}, {distribution_path}")
+                    
+                    # Convert both to JSON
+                    time_series_data = plotly_to_json(time_series_fig)
+                    distribution_data = plotly_to_json(distribution_fig)
+                    
+                    # Save data
+                    import pandas as pd
+                    angles_df = pd.DataFrame(angles.reshape(-1, angles.shape[-1]), 
+                                           columns=["alpha", "beta", "gamma", "delta", "epsilon", "zeta", "chi"])
+                    csv_path = os.path.join(files_path, "torsion_angles.csv")
+                    angles_df.to_csv(csv_path, index=False)
+                    logger.info(f"Torsion data saved to: {csv_path}")
+                    
+                    logger.info(f"Torsion plots conversion to JSON successful")
+                    return [time_series_data, distribution_data]
+                else:
+                    # Fallback for single figure
+                    fig = figures if not isinstance(figures, list) else figures[0]
+                    os.makedirs(plot_dir, exist_ok=True)
+                    html_path = os.path.join(plot_dir, "torsion_plot.html")
+                    fig.write_html(html_path)
+                    plotly_data = plotly_to_json(fig)
+                    return plotly_data
             
         except ImportError as e:
             logger.error(f"Torsion plot import failed: {e}")

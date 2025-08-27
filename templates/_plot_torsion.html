@@ -10,7 +10,7 @@
     <i data-lucide="help-circle"></i>
   </div>
   
-  <div id="{{ plot_info[1] }}" style="width: 100%; height: 600px; border: 1px solid #e0e0e0; border-radius: 5px; background: white; margin-bottom: 15px;"></div>
+  <div id="{{ plot_info[1] }}" style="width: 100%; height: 1000px; border: 1px solid #e0e0e0; border-radius: 5px; background: white; margin-bottom: 15px;"></div>
   <div class="content">
     <h2>{{ explainations.get(plot_info[0]).title if explainations and explainations.get(plot_info[0]) else 'Torsion Angles Analysis' }}</h2>
     <p>{{ explainations.get(plot_info[0]).content if explainations and explainations.get(plot_info[0]) else 'Analysis of backbone torsion angles over the trajectory.' }}</p>
