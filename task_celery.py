@@ -271,27 +271,49 @@ def generate_torsion_plot(self, topology_file, trajectory_file, files_path, plot
         logger.info(f"Calculated torsion angles for {len(res)} residues")
         
         try:
-            from create_plots import plot_torsion, plot_torsion_enhanced, plotly_to_json
+            # Ensure current directory is in path for imports
+            import sys
+            import os
+            current_dir = os.path.dirname(os.path.abspath(__file__))
+            if current_dir not in sys.path:
+                sys.path.insert(0, current_dir)
+            
+            from create_plots import plot_torsion, plot_torsion_enhanced
+            logger.info(f"Torsion plot import successful")
             
             # Handle backward compatibility
             if isinstance(torsion_residue, dict):
+                logger.info(f"Using enhanced torsion plot with params: {torsion_residue}")
                 fig = plot_torsion_enhanced(angles, res, torsion_residue)
             else:
-                # Old single residue format
+                logger.info(f"Using single residue torsion plot for residue: {torsion_residue}")
                 fig = plot_torsion(angles, res, torsion_residue)
-                
-            fig.write_html(os.path.join(plot_dir, "torsion_plot.html"))
+            
+            logger.info(f"Torsion plot generated successfully")
+            
+            # Ensure plot directory exists
+            os.makedirs(plot_dir, exist_ok=True)
+            html_path = os.path.join(plot_dir, "torsion_plot.html")
+            fig.write_html(html_path)
+            logger.info(f"Torsion plot saved to: {html_path}")
             
             # Save data
             import pandas as pd
             angles_df = pd.DataFrame(angles.reshape(-1, angles.shape[-1]), 
                                    columns=["alpha", "beta", "gamma", "delta", "epsilon", "zeta", "chi"])
-            angles_df.to_csv(os.path.join(files_path, "torsion_angles.csv"), index=False)
+            csv_path = os.path.join(files_path, "torsion_angles.csv")
+            angles_df.to_csv(csv_path, index=False)
+            logger.info(f"Torsion data saved to: {csv_path}")
             
             plotly_data = plotly_to_json(fig)
+            logger.info(f"Torsion plot conversion to JSON successful")
             return plotly_data
             
-        except ImportError:
+        except ImportError as e:
+            logger.error(f"Torsion plot import failed: {e}")
+            return {"path": f"static/{session_id}/torsion_plot.png", "status": "fallback"}
+        except Exception as plot_error:
+            logger.error(f"Torsion plot generation failed: {plot_error}")
             return {"path": f"static/{session_id}/torsion_plot.png", "status": "fallback"}
             
     except Exception as exc:

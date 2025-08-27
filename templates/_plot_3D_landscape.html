@@ -68,6 +68,12 @@
    // Update frame slider and input values
    document.getElementById('frame-slider').value = frame;
    document.getElementById('frame-number').value = frame;
+   
+   // Update contact map
+   socket.emit("update_contact_map", {
+     value: frame,
+     session_id: "{{ session_id }}"
+   }, "{{ session_id }}");
  });
  
  // Debounce function to prevent excessive resize calls

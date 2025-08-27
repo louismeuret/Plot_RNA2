@@ -42,7 +42,25 @@
         //});
         var currentPlot_{{ plot_info[1] }} = document.getElementById('{{ plot_info[1] }}');
         currentPlot_{{ plot_info[1] }}.on('plotly_click', function(data) {
-            LouisMolStarWrapper.interactivity.changeFrame(data.points[0].x);
+            const frameNumber = data.points[0].x;
+            // Update the 3D viewer
+            LouisMolStarWrapper.interactivity.changeFrame(frameNumber);
+            // Update slider and frame number input to stay synchronized
+            const frameSlider = document.getElementById('frame-slider');
+            const frameNumberInput = document.getElementById('frame-number');
+            if (frameSlider) frameSlider.value = frameNumber;
+            if (frameNumberInput) frameNumberInput.value = frameNumber;
+            
+            // Update contact map if socket is available
+            if (typeof io !== 'undefined') {
+                const socket = io.connect((location.protocol === 'https:' ? 'https://' : 'http://') + document.domain + ":" + location.port, {
+                    query: "session_id={{ session_id }}"
+                });
+                socket.emit("update_contact_map", {
+                    value: frameNumber,
+                    session_id: "{{ session_id }}"
+                }, "{{ session_id }}");
+            }
         });
         document.getElementById('frame-slider').addEventListener('input', function() {
           var sliderValue = parseInt(this.value);
