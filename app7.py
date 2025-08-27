@@ -8,7 +8,7 @@ os.environ['EVENTLET_NO_GREENDNS'] = '1'
 try:
     import eventlet
     # Conservative monkey patching to avoid conflicts
-    eventlet.monkey_patch(socket=True, time=False, select=True, thread=False, os=False)
+    eventlet.monkey_patch(socket=True, dns=False, time=False, select=True, thread=False, os=False)
     EVENTLET_AVAILABLE = True
 except ImportError as e:
     print(f"Warning: eventlet import failed: {e}")
@@ -68,9 +68,8 @@ import pickle
 import io
 import zipfile
 
-# Import ultra-optimized tasks with caching (all tasks including batch coordinator)
-from tasks_celery import *
-from computation_cache import computation_cache
+from task_celery import *
+from task_celery import app as celery_app
 from celery.result import AsyncResult
 import threading
 import logging
@@ -85,141 +84,6 @@ app.debug = True
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
-class SharedComputationCache:
-    """Thread-safe cache for sharing computation results between plot generations with advanced optimizations"""
-
-    def __init__(self):
-        self._cache: Dict[str, Any] = {}
-        self._lock = threading.Lock()
-        self._cache_dir = os.path.join("temp", "computation_cache")
-        os.makedirs(self._cache_dir, exist_ok=True)
-        
-        # Advanced optimizations
-        self._metadata_cache = {}  # Cache for trajectory metadata
-        self._file_modification_times = {}  # Track file changes
-        self._compression_enabled = True  # Use compression for large arrays
-        
-        # Performance monitoring
-        self._cache_hits = 0
-        self._cache_misses = 0
-        self._computation_times = {}
-
-    def _get_cache_key(self, native_pdb_path: str, traj_xtc_path: str, computation_type: str, params: Dict = None) -> str:
-        """Generate a unique cache key including file modification times for invalidation"""
-        # Include file modification times for automatic cache invalidation
-        try:
-            native_mtime = os.path.getmtime(native_pdb_path)
-            traj_mtime = os.path.getmtime(traj_xtc_path)
-            key_data = f"{native_pdb_path}:{traj_xtc_path}:{computation_type}:{native_mtime}:{traj_mtime}"
-        except OSError:
-            # Fallback if files don't exist
-            key_data = f"{native_pdb_path}:{traj_xtc_path}:{computation_type}"
-            
-        if params:
-            key_data += ":" + str(sorted(params.items()))
-        return hashlib.md5(key_data.encode()).hexdigest()
-    
-    def _is_cache_valid(self, cache_key: str, native_pdb_path: str, traj_xtc_path: str) -> bool:
-        """Check if cache entry is still valid based on file modification times"""
-        if cache_key not in self._file_modification_times:
-            return False
-            
-        try:
-            current_native_mtime = os.path.getmtime(native_pdb_path)
-            current_traj_mtime = os.path.getmtime(traj_xtc_path)
-            stored_native_mtime, stored_traj_mtime = self._file_modification_times[cache_key]
-            
-            return (current_native_mtime == stored_native_mtime and 
-                    current_traj_mtime == stored_traj_mtime)
-        except (OSError, KeyError):
-            return False
-
-    def get_computation(self, native_pdb_path: str, traj_xtc_path: str, computation_type: str, params: Dict = None) -> Optional[Any]:
-        """Get cached computation result if available with optimized validation"""
-        cache_key = self._get_cache_key(native_pdb_path, traj_xtc_path, computation_type, params)
-
-        # Fast memory cache check
-        with self._lock:
-            if cache_key in self._cache and self._is_cache_valid(cache_key, native_pdb_path, traj_xtc_path):
-                self._cache_hits += 1
-                logger.info(f"Memory cache hit for {computation_type} computation (hit rate: {self._cache_hits/(self._cache_hits + self._cache_misses)*100:.1f}%)")
-                return self._cache[cache_key]
-
-        # Disk cache check with compression support
-        cache_file = os.path.join(self._cache_dir, f"{cache_key}.pkl")
-        if os.path.exists(cache_file):
-            try:
-                start_time = time.time()
-                if self._compression_enabled:
-                    import gzip
-                    with gzip.open(cache_file + '.gz', 'rb') as f:
-                        result = pickle.load(f)
-                else:
-                    with open(cache_file, 'rb') as f:
-                        result = pickle.load(f)
-                
-                load_time = time.time() - start_time
-                
-                # Store in memory cache
-                with self._lock:
-                    self._cache[cache_key] = result
-                    self._file_modification_times[cache_key] = (
-                        os.path.getmtime(native_pdb_path), 
-                        os.path.getmtime(traj_xtc_path)
-                    )
-                    self._cache_hits += 1
-                
-                logger.info(f"Loaded {computation_type} from disk cache in {load_time:.2f}s (hit rate: {self._cache_hits/(self._cache_hits + self._cache_misses)*100:.1f}%)")
-                return result
-            except Exception as e:
-                logger.warning(f"Failed to load cache file {cache_file}: {e}")
-
-        self._cache_misses += 1
-        return None
-
-    def store_computation(self, native_pdb_path: str, traj_xtc_path: str, computation_type: str, result: Any, params: Dict = None):
-        """Store computation result in cache with optimization and compression"""
-        cache_key = self._get_cache_key(native_pdb_path, traj_xtc_path, computation_type, params)
-        start_time = time.time()
-
-        # Store in memory cache
-        with self._lock:
-            self._cache[cache_key] = result
-            try:
-                self._file_modification_times[cache_key] = (
-                    os.path.getmtime(native_pdb_path), 
-                    os.path.getmtime(traj_xtc_path)
-                )
-            except OSError:
-                pass
-
-        # Asynchronous disk storage with compression
-        def store_to_disk():
-            try:
-                cache_file = os.path.join(self._cache_dir, f"{cache_key}.pkl")
-                if self._compression_enabled:
-                    import gzip
-                    with gzip.open(cache_file + '.gz', 'wb') as f:
-                        pickle.dump(result, f, protocol=pickle.HIGHEST_PROTOCOL)
-                else:
-                    with open(cache_file, 'wb') as f:
-                        pickle.dump(result, f, protocol=pickle.HIGHEST_PROTOCOL)
-                
-                store_time = time.time() - start_time
-                self._computation_times[computation_type] = store_time
-                logger.info(f"Stored {computation_type} computation in cache (disk write: {store_time:.2f}s)")
-            except Exception as e:
-                logger.warning(f"Failed to save cache file {cache_file}: {e}")
-
-        # Use thread pool for non-blocking disk I/O
-        with ThreadPoolExecutor(max_workers=1) as executor:
-            executor.submit(store_to_disk)
-
-    def has_computation(self, native_pdb_path: str, traj_xtc_path: str, computation_type: str, params: Dict = None) -> bool:
-        """Check if computation result is available in cache"""
-        return self.get_computation(native_pdb_path, traj_xtc_path, computation_type, params) is not None
-
-shared_cache = SharedComputationCache()
 
 class OptimizedTrajectoryManager:
     """Optimized trajectory loading and management with parallel processing"""
@@ -488,6 +352,7 @@ class CalculationPlanner:
         self.logger.info(f"Final order: {ordered_plots}")
         
         return ordered_plots
+    
 socketio = SocketIO(
     app,
     logger=True,
@@ -675,36 +540,6 @@ def cache_debug():
 def simple_test():
     return render_template("simple-test.html")
 
-@app.route("/cache-stats")
-def cache_stats():
-    """Get computation cache statistics"""
-    try:
-        stats = computation_cache.get_cache_stats()
-        return jsonify({
-            'success': True,
-            'stats': stats
-        })
-    except Exception as e:
-        return jsonify({
-            'success': False,
-            'error': str(e)
-        }), 500
-
-@app.route("/clear-computation-cache/<session_id>", methods=['POST'])
-def clear_computation_cache_route(session_id):
-    """Clear computation cache for a specific session"""
-    try:
-        deleted_count = computation_cache.invalidate_session(session_id)
-        return jsonify({
-            'success': True,
-            'deleted_keys': deleted_count,
-            'message': f'Cleared {deleted_count} cached computations for session {session_id}'
-        })
-    except Exception as e:
-        return jsonify({
-            'success': False,
-            'error': str(e)
-        }), 500
 
 @app.route("/benchmark-performance/<session_id>", methods=['POST'])
 def benchmark_performance_route(session_id):
@@ -975,7 +810,7 @@ def download_plot(plot_id, session_id):
     # Send the zip file as a response
     return send_file(memory_file, download_name=download_filename, as_attachment=True)
 
-@app.route('/view_trajectory/<session_id>/<native_pdb>/<traj_xtc>')
+@app.route('/view-trajectory/<session_id>/<native_pdb>/<traj_xtc>')
 def view_trajectory(session_id, native_pdb, traj_xtc):
     start_time = time.time()
     socketio.emit('update_progress', {"progress": 0, "message": "Initializing trajectory analysis..."}, to=session_id)
@@ -1045,7 +880,11 @@ def view_trajectory(session_id, native_pdb, traj_xtc):
     
     # Load with optimization
     u, ref, r_matrix, residue_names = load_and_preprocess_trajectory()
-    
+    logger.info(f"Computed the rotation matrix: {r_matrix}")
+    try:
+        r_matrix_str = str(r_matrix.tolist())
+    except:
+        logger.warning("Got an issue with r_matrix computation")     
     logger.info(f"Loaded trajectory: {residue_names}")
     logger.info(f"Nucleic backbone atoms: {len(u.select_atoms('nucleicbackbone').positions)}")
     logger.info(f"Reference backbone atoms: {len(ref.select_atoms('nucleicbackbone').positions)}")
@@ -1063,13 +902,17 @@ def view_trajectory(session_id, native_pdb, traj_xtc):
             start, end, stride = 0, len(u.trajectory), 1
         
         # Parallel trajectory writing
-        with mda.Writer(output_path, n_atoms=u.atoms.n_atoms) as W:
-            if frame_range != "all":
+        if frame_range != "all":
+            with mda.Writer(output_path, n_atoms=u.atoms.n_atoms) as W:
                 for ts in u.trajectory[start:end:stride]:
                     W.write(u)
-            else:
-                for ts in u.trajectory[::]:
-                    W.write(u)
+        else:
+            # If frame_range is "all", don't rewrite - just move/rename if needed
+            if traj_xtc_path != output_path:
+                #import shutil
+                # trying symlink
+                os.symlink(traj_xtc_path, output_path)
+                #shutil.move(traj_xtc_path, output_path)
         
         return output_path
     
@@ -1089,88 +932,51 @@ def view_trajectory(session_id, native_pdb, traj_xtc):
     socketio.emit('update_progress', {"progress": 45, "message": "Calculations planned and optimized."}, to=session_id)
     socketio.sleep(0.1)
 
-    # Pre-compute shared metrics to maximize cache efficiency
-    shared_computations = planner.get_shared_computations(selected_plots)
-    if shared_computations:
-        socketio.emit('update_progress', {"progress": 50, "message": "Pre-computing shared metrics..."}, to=session_id)
-        logger.info(f"Pre-computing shared metrics: {list(shared_computations.keys())}")
-
-        for computation_type, dependent_plots in shared_computations.items():
-            if computation_type == "rmsd" and not shared_cache.has_computation(native_pdb_path, traj_xtc_path, "rmsd"):
-                logger.info(f"Pre-computing RMSD for plots: {dependent_plots}")
-                try:
-                    import barnaba as bb
-                    rmsd_result = bb.rmsd(native_pdb_path, traj_xtc_path, topology=native_pdb_path, heavy_atom=True)
-                    shared_cache.store_computation(native_pdb_path, traj_xtc_path, "rmsd", rmsd_result)
-                    logger.info("RMSD pre-computation completed")
-                except Exception as e:
-                    logger.warning(f"Failed to pre-compute RMSD: {e}")
-
-            elif computation_type == "ermsd" and not shared_cache.has_computation(native_pdb_path, traj_xtc_path, "ermsd"):
-                logger.info(f"Pre-computing eRMSD for plots: {dependent_plots}")
-                try:
-                    import barnaba as bb
-                    ermsd_result = bb.ermsd(native_pdb_path, traj_xtc_path, topology=native_pdb_path)
-                    shared_cache.store_computation(native_pdb_path, traj_xtc_path, "ermsd", ermsd_result)
-                    logger.info("eRMSD pre-computation completed")
-                except Exception as e:
-                    logger.warning(f"Failed to pre-compute eRMSD: {e}")
-
-        socketio.emit('update_progress', {"progress": 55, "message": "Shared metrics pre-computed."}, to=session_id)
-        socketio.sleep(0.1)
-
-    # NEW: Use RMSD-first workflow orchestrator for optimal performance
-    try:
-        from tasks_celery import workflow_orchestrator
-        
-        # Check if workflow orchestrator should be used (when LANDSCAPE plot is selected)
-        use_optimized_workflow = 'LANDSCAPE' in selected_plots and ('RMSD' in selected_plots or 'ERMSD' in selected_plots)
-        
-        if use_optimized_workflow:
-            socketio.emit('update_progress', {"progress": 60, "message": "Using RMSD-first workflow optimization..."}, to=session_id)
-            logger.info(f"Using optimized RMSD-first workflow for session {session_id}")
-            
-            # Convert session to serializable dict for workflow orchestrator
-            session_params = {
-                'landscape_stride': session.get('landscape_stride', 1),
-                'landscape_first_component': session.get('landscape_first_component', 'RMSD'),
-                'landscape_second_component': session.get('landscape_second_component', 'eRMSD'),
-                'torsionResidue': session.get('torsionResidue', 0),
-                'n_frames': session.get('n_frames', 1),
-                'frame_range': session.get('frame_range', 'all')
-            }
-            
-            # Use new workflow orchestrator
-            workflow_result = workflow_orchestrator.apply_async(
-                args=[session_id, selected_plots, native_pdb_path, traj_xtc_path, session_params]
-            ).get()
-            
-            if workflow_result.get('workflow_success'):
-                logger.info(f"RMSD-first preparation completed in {workflow_result['execution_time']:.2f}s")
-                logger.info(f"Message: {workflow_result.get('message', 'Shared computations prepared')}")
-                
-                socketio.emit('update_progress', {"progress": 65, "message": f"RMSD-first shared computations prepared! Now generating plots..."}, to=session_id)
-                
-                # Continue with regular plot generation, but now with cached RMSD/eRMSD available
-                use_optimized_workflow = False  # Let regular workflow handle plot generation with cached data
-            else:
-                logger.warning("Optimized workflow failed, falling back to original approach")
-                use_optimized_workflow = False
-        else:
-            use_optimized_workflow = False
-            
-    except ImportError:
-        logger.warning("Workflow orchestrator not available, using original approach")
-        use_optimized_workflow = False
-    except Exception as e:
-        logger.error(f"Error with optimized workflow: {e}, falling back to original approach")
-        use_optimized_workflow = False
+    # Phase 1: Compute metrics needed by plots
+    metrics_needed = []
+    if "RMSD" in selected_plots:
+        metrics_needed.append("rmsd")
+    if "ERMSD" in selected_plots:
+        metrics_needed.append("ermsd")
+    if "ANNOTATE" in selected_plots:
+        metrics_needed.append("annotate")
     
-    # Fallback to original parallel task execution if optimized workflow not used
-    if not use_optimized_workflow:
-        plot_data = []
-        active_jobs = {}  # Track running jobs
-        max_parallel_jobs = min(multiprocessing.cpu_count(), 4)  # Limit concurrent jobs
+    if metrics_needed:
+        socketio.emit('update_progress', {"progress": 50, "message": "Computing metrics..."}, to=session_id)
+        
+        # Create Celery chain for metrics computation
+        from celery import chain
+        metrics_jobs = []
+        
+        if "rmsd" in metrics_needed:
+            metrics_jobs.append(compute_rmsd.s(native_pdb_path, traj_xtc_path, session_id))
+        if "ermsd" in metrics_needed:
+            metrics_jobs.append(compute_ermsd.s(native_pdb_path, traj_xtc_path, session_id))
+        if "annotate" in metrics_needed:
+            metrics_jobs.append(compute_annotate.s(native_pdb_path, traj_xtc_path, session_id))
+        
+        # Execute metrics computation chain
+        if metrics_jobs:
+            metrics_chain = chain(*metrics_jobs)
+            metrics_result = metrics_chain.apply_async()
+            
+            # Wait for metrics computation to complete
+            while not metrics_result.ready():
+                socketio.sleep(0.1)
+            
+            if metrics_result.successful():
+                logger.info("All metrics computed successfully")
+                socketio.emit('update_progress', {"progress": 55, "message": "Metrics computed."}, to=session_id)
+            else:
+                logger.error(f"Metrics computation failed: {metrics_result.result}")
+                socketio.emit('update_progress', {"progress": 100, "message": "Error: Metrics computation failed"}, to=session_id)
+                return
+
+    # Phase 2: Generate plots using computed metrics  
+    socketio.emit('update_progress', {"progress": 60, "message": "Generating plots..."}, to=session_id)
+    plot_data = []
+    active_jobs = {}  # Track running jobs
+    max_parallel_jobs = min(multiprocessing.cpu_count(), 4)  # Limit concurrent jobs
     
     def submit_plot_job(plot):
         """Submit a single plot job and return job info"""
@@ -1238,7 +1044,7 @@ def view_trajectory(session_id, native_pdb, traj_xtc):
 
         if job:
             logger.info(f"Enqueued {plot} calculation with job ID: {job.id}")
-            return [plot, plot_style, job.id]  # Return job ID, not the job object
+            return [plot, plot_style, job.id]
         return None
     
     # Parallel job submission with dependency management
@@ -1262,9 +1068,7 @@ def view_trajectory(session_id, native_pdb, traj_xtc):
                 job_info = submit_plot_job(plot)
                 if job_info:
                     plot_data.append(job_info)
-                    # job_info[2] is now job.id (string), but we need to get the job object for monitoring
-                    job_id = job_info[2]
-                    active_jobs[plot] = celery_app.AsyncResult(job_id)  # Store the job object for monitoring
+                    active_jobs[plot] = job_info[2]  # Store the job ID
                     logger.info(f"Submitted {plot} for parallel execution")
                     
                     socketio.emit('update_progress', {"progress": 60, "message": f"{plot} plot enqueued for parallel execution."}, to=session_id)
@@ -1276,7 +1080,8 @@ def view_trajectory(session_id, native_pdb, traj_xtc):
         
         # Check for completed jobs
         completed_jobs = []
-        for plot, job in active_jobs.items():
+        for plot, job_id in active_jobs.items():
+            job = celery_app.AsyncResult(job_id)
             if job.ready():
                 completed_jobs.append(plot)
                 completed_dependencies.add(plot)
@@ -1294,64 +1099,47 @@ def view_trajectory(session_id, native_pdb, traj_xtc):
     socketio.sleep(0.1)  # Ensure the message is sent
 
     # Wait for and process results with better error handling
-    # Note: Import app2 once at the module level would be better, but doing it here for clarity
-    from tasks_celery import app2 as celery_app
-    
-    if not use_optimized_workflow:
-        completed_plot_data = []
-        total_jobs = len(plot_data)
-        completed_jobs = 0
+    completed_plot_data = []
+    total_jobs = len(plot_data)
+    completed_jobs = 0
 
-        for plot_type, plot_style, job_id in plot_data:
-            try:
-                job = celery_app.AsyncResult(job_id)
-                start_time = time.time()
+    for plot_type, plot_style, job_id in plot_data:
+        try:
+            job = celery_app.AsyncResult(job_id)
+            start_time = time.time()
 
-                # Wait with timeout and progress updates
-                while not job.ready():
-                    elapsed = time.time() - start_time
-                    if elapsed > 600:  # 10 minute timeout
-                        logger.error(f"Timeout waiting for {plot_type} calculation")
-                        socketio.emit('update_progress', {"progress": 80, "message": f"Timeout: {plot_type} calculation taking too long"}, to=session_id)
-                        break
-                    time.sleep(0.1)
+            # Wait with timeout and progress updates
+            while not job.ready():
+                elapsed = time.time() - start_time
+                if elapsed > 600:  # 10 minute timeout
+                    logger.error(f"Timeout waiting for {plot_type} calculation")
+                    socketio.emit('update_progress', {"progress": 80, "message": f"Timeout: {plot_type} calculation taking too long"}, to=session_id)
+                    break
+                time.sleep(0.1)
 
-                if job.successful():
-                    completed_plot_data.append([plot_type, plot_style, job.result])
-                    completed_jobs += 1
-                    progress = 70 + (completed_jobs / total_jobs) * 20
-                    logger.info(f"Completed {plot_type} calculation successfully")
-                    socketio.emit('update_progress', {"progress": progress, "message": f"{plot_type} plot completed ({completed_jobs}/{total_jobs})."}, to=session_id)
-                else:
-                    error_msg = str(job.result) if job.result else "Unknown error"
-                    logger.error(f"Error in {plot_type} calculation: {error_msg}")
-                    socketio.emit('update_progress', {"progress": 80, "message": f"Error with {plot_type} plot: {error_msg}"}, to=session_id)
+            if job.successful():
+                completed_plot_data.append([plot_type, plot_style, job.result])
+                completed_jobs += 1
+                progress = 70 + (completed_jobs / total_jobs) * 20
+                logger.info(f"Completed {plot_type} calculation successfully")
+                socketio.emit('update_progress', {"progress": progress, "message": f"{plot_type} plot completed ({completed_jobs}/{total_jobs})."}, to=session_id)
+            else:
+                error_msg = str(job.result) if job.result else "Unknown error"
+                logger.error(f"Error in {plot_type} calculation: {error_msg}")
+                socketio.emit('update_progress', {"progress": 80, "message": f"Error with {plot_type} plot: {error_msg}"}, to=session_id)
 
-            except Exception as e:
-                logger.error(f"Exception processing {plot_type} result: {str(e)}")
-                socketio.emit('update_progress', {"progress": 80, "message": f"Exception with {plot_type}: {str(e)}"}, to=session_id)
+        except Exception as e:
+            logger.error(f"Exception processing {plot_type} result: {str(e)}")
+            socketio.emit('update_progress', {"progress": 80, "message": f"Exception with {plot_type}: {str(e)}"}, to=session_id)
 
-    # Ensure completed_plot_data is defined
-    if not 'completed_plot_data' in locals():
-        logger.error("completed_plot_data not defined - this indicates a workflow issue")
-        completed_plot_data = []
-    
     pickle_file_path = os.path.join(directory_path, "plot_data.pkl")
     print(f"Dir Path = {directory_path}")
     print(f"Completed Plot Data: {completed_plot_data}")  # Debugging line to check the data
-    print(f"Number of completed plots: {len(completed_plot_data) if completed_plot_data else 0}")
-    
     with open(pickle_file_path, "wb") as f:
         pickle.dump(completed_plot_data, f, protocol=pickle.HIGHEST_PROTOCOL)
 
     socketio.emit('update_progress', {"progress": 100, "message": "Trajectory analysis complete."}, to=session_id)
 
-    # Create rotation matrix string for template
-    try:
-        r_matrix_str = str(r_matrix.tolist()) if 'r_matrix' in locals() else "[]"
-    except:
-        r_matrix_str = "[]"
-    
     return render_template(
             "view_trajectory.html",
             session_id=session_id,
